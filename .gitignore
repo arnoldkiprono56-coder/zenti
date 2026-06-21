@@ -5,6 +5,8 @@ dist
 tmp
 api/handler.mjs
 api/handler.mjs.map
+netlify/functions/api.mjs
+netlify/functions/api.mjs.map
 out-tsc
 *.tsbuildinfo
 .expo

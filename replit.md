@@ -31,6 +31,37 @@ Zenti is a Kenyan investment platform where everyday Kenyans earn daily returns,
 - `lib/api-client-react/src/generated/` — auto-generated React hooks (do not edit)
 - `lib/api-zod/src/generated/` — auto-generated Zod schemas (do not edit)
 
+## Netlify Deployment
+
+Files added for Netlify:
+- `netlify.toml` — build command, publish dir (`dist`), functions dir, redirects
+- `artifacts/api-server/src/netlify-handler.ts` — wraps Express with serverless-http
+- `artifacts/api-server/build-netlify.mjs` — esbuild script that bundles to `netlify/functions/api.mjs`
+
+**Required environment variables in Netlify dashboard (Site settings → Environment variables):**
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | Neon PostgreSQL connection string |
+| `SESSION_SECRET` | Secret key for JWT signing (any long random string) |
+| `SMTP_USER` | Gmail address for sending OTP emails |
+| `SMTP_PASS` | Gmail app password |
+| `PAYHERO_AUTH_TOKEN` | From PayHero dashboard (base64 clientId:clientSecret) |
+| `PAYHERO_CHANNEL_ID` | Numeric channel ID from PayHero dashboard |
+| `APP_URL` | Your Netlify production URL (for CORS & M-Pesa callbacks) |
+| `FRONTEND_URL` | Same as APP_URL |
+
+**Deploy steps:**
+1. Push code to GitHub
+2. Go to app.netlify.com → Add new site → Import from GitHub
+3. Select your repo — Netlify auto-detects `netlify.toml` (no manual config needed)
+4. Add all environment variables above
+5. Deploy
+
+**How it works:**
+- `/api/*` requests are redirected to `/.netlify/functions/api` (Express wrapped with serverless-http)
+- Everything else serves `dist/index.html` (React SPA)
+- `netlify/functions/api.mjs` is generated during build — not committed to git
+
 ## Vercel Deployment
 
 Files added for Vercel:

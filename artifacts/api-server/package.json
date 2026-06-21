@@ -7,6 +7,7 @@
     "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
     "build:vercel": "node ./build-vercel.mjs",
+    "build:netlify": "node ./build-netlify.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -22,6 +23,7 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^9.0.1",
+    "serverless-http": "^3.2.0",
     "pino": "^9.14.0",
     "pino-http": "^10.5.0"
   },
