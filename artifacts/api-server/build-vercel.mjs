@@ -7,18 +7,19 @@ import { rm } from "node:fs/promises";
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(artifactDir, "../..");
 
 async function buildVercel() {
-  const distDir = path.resolve(artifactDir, "dist");
-  await rm(path.join(distDir, "vercel.mjs"), { force: true });
-  await rm(path.join(distDir, "vercel.mjs.map"), { force: true });
+  const outfile = path.join(projectRoot, "api/handler.mjs");
+  await rm(outfile, { force: true });
+  await rm(`${outfile}.map`, { force: true });
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/vercel-handler.ts")],
     platform: "node",
     bundle: true,
     format: "esm",
-    outfile: path.join(distDir, "vercel.mjs"),
+    outfile,
     logLevel: "info",
     external: [
       "*.node",

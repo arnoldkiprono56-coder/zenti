@@ -2,12 +2,7 @@
   "version": 2,
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/api-server run build:vercel && pnpm --filter @workspace/invest-ke run build",
-  "outputDirectory": "artifacts/invest-ke/dist",
-  "functions": {
-    "api/index.mjs": {
-      "includeFiles": "artifacts/api-server/dist/**"
-    }
-  },
+  "outputDirectory": "dist",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.mjs" },
     { "source": "/(.*)", "destination": "/index.html" }
