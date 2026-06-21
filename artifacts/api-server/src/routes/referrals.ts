@@ -35,7 +35,7 @@ export async function updateReferrerTier(referrerId: number) {
     void (async () => {
       try {
         const { sendReferralEnrollmentEmail, getDefaultSmtpConfig } = await import("../lib/email");
-        const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || "https://zenti.run.place";
+        const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || "";
         const referralLink = `${baseUrl}/register?ref=${referrer.referralCode}`;
         await sendReferralEnrollmentEmail(
           { email: referrer.email, name: referrer.fullName },
