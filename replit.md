@@ -58,8 +58,14 @@ Optional:
 **Deploy steps:**
 1. Push code to GitHub
 2. Import repo in vercel.com → framework preset: **Other**
-3. Add all environment variables above
-4. Deploy — Vercel auto-runs the build and deploys
+3. In Vercel project settings → General → set **Framework Preset** to **Other** (prevents auto-detection overriding vercel.json)
+4. Add all environment variables above
+5. Deploy — Vercel auto-runs the build and deploys
+
+**Vercel config notes:**
+- Uses `rewrites` (not `routes`) so Vercel does not mistake the static `outputDirectory` for a Node.js server and search for a JS entrypoint
+- `includeFiles: "artifacts/api-server/dist/**"` ensures all bundled API server files are available to the serverless function at runtime
+- If you see "No entrypoint found in output directory" again, check that the framework preset is set to **Other** in the Vercel dashboard
 
 ## Architecture decisions
 
