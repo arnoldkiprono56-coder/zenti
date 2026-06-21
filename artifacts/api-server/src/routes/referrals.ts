@@ -30,14 +30,31 @@ export async function updateReferrerTier(referrerId: number) {
       referralCountdownDeadline: deadline,
       updatedAt: now,
     }).where(eq(usersTable.id, referrerId));
+
+    // Send enrollment confirmation email
+    void (async () => {
+      try {
+        const { sendReferralEnrollmentEmail, getDefaultSmtpConfig } = await import("../lib/email");
+        const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || "https://zenti.run.place";
+        const referralLink = `${baseUrl}/register?ref=${referrer.referralCode}`;
+        await sendReferralEnrollmentEmail(
+          { email: referrer.email, name: referrer.fullName },
+          { referralLink, referralCode: referrer.referralCode ?? "", deadlineDate: deadline },
+          getDefaultSmtpConfig(),
+        );
+      } catch { /* silent */ }
+    })();
     return;
   }
 
   if (referrer.referralStatus === "countdown") {
     const deadline = referrer.referralCountdownDeadline;
     const expired = deadline && now > deadline;
+    const countdownStarted = deadline ? new Date(deadline.getTime() - 10 * 24 * 60 * 60 * 1000) : now;
+    const withinFirstWeek = (now.getTime() - countdownStarted.getTime()) <= 7 * 24 * 60 * 60 * 1000;
+    const isLegend = withinFirstWeek && activeCount > 10;
 
-    if (!expired && activeCount >= 5) {
+    if (!expired && (activeCount >= 5 || isLegend)) {
       await db.update(usersTable).set({ referralStatus: "elite", updatedAt: now }).where(eq(usersTable.id, referrerId));
       return;
     }
@@ -56,6 +73,7 @@ export async function updateReferrerTier(referrerId: number) {
   }
 }
 
+/* ── GET /me ─────────────────────────────────────────────────────────────── */
 router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user) { res.status(404).json({ error: "Not found" }); return; }
@@ -79,6 +97,14 @@ router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
     countdownDaysLeft = Math.max(0, Math.ceil(msLeft / (1000 * 60 * 60 * 24)));
   }
 
+  // Determine if user qualifies for Legend bonus (>10 active in first 7 days)
+  let isLegend = false;
+  if ((user.referralStatus === "elite" || user.referralStatus === "countdown") && user.referralCountdownDeadline) {
+    const countdownStarted = new Date(user.referralCountdownDeadline.getTime() - 10 * 24 * 60 * 60 * 1000);
+    const msElapsed = Date.now() - countdownStarted.getTime();
+    isLegend = msElapsed <= 7 * 24 * 60 * 60 * 1000 && activeCount > 10;
+  }
+
   const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
   const referralLink = `${baseUrl}/register?ref=${user.referralCode}`;
 
@@ -91,6 +117,7 @@ router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
     activeReferrals: activeCount,
     totalReferrals: totalCount,
     totalEarned,
+    isLegend,
     recentPayouts: payouts.map(p => ({
       id: p.id,
       bonusAmount: parseFloat(p.bonusAmount),
@@ -101,6 +128,7 @@ router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
   });
 });
 
+/* ── GET /my-referrals ───────────────────────────────────────────────────── */
 router.get("/my-referrals", requireAuth, async (req: AuthRequest, res: Response) => {
   const referrals = await db
     .select({
@@ -120,6 +148,50 @@ router.get("/my-referrals", requireAuth, async (req: AuthRequest, res: Response)
   res.json(referrals);
 });
 
+/* ── POST /apply — enroll and send confirmation email ────────────────────── */
+router.post("/apply", requireAuth, async (req: AuthRequest, res: Response) => {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  // Ensure user has a referral code
+  if (!user.referralCode) {
+    const code = generateReferralCode();
+    await db.update(usersTable).set({ referralCode: code, updatedAt: new Date() }).where(eq(usersTable.id, req.userId!));
+    user.referralCode = code;
+  }
+
+  const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
+  const referralLink = `${baseUrl}/register?ref=${user.referralCode}`;
+
+  // Send welcome-to-referral-program email
+  void (async () => {
+    try {
+      const { sendReferralWelcomeEmail, getDefaultSmtpConfig } = await import("../lib/email");
+      await sendReferralWelcomeEmail(
+        { email: user.email, name: user.fullName },
+        { referralLink, referralCode: user.referralCode ?? "" },
+        getDefaultSmtpConfig(),
+      );
+    } catch { /* silent */ }
+  })();
+
+  await db.insert(activityLogsTable).values({
+    userId: req.userId!,
+    userEmail: user.email,
+    action: "referral_program_applied",
+    details: "User applied to referral program and received confirmation email",
+    ipAddress: req.ip || "unknown",
+  });
+
+  res.json({
+    ok: true,
+    referralCode: user.referralCode,
+    referralLink,
+    message: "You are enrolled in the referral program. Check your email for full details.",
+  });
+});
+
+/* ── Sunday bonus processing ─────────────────────────────────────────────── */
 export async function processSundayBonuses() {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
@@ -140,8 +212,15 @@ export async function processSundayBonuses() {
 
     const isCurrentlyElite = referrer.referralStatus === "elite" && activeReferrals.length >= 5;
 
+    // Check for Legend bonus: >10 active in first 7 days
+    let isLegend = false;
+    if (isCurrentlyElite && referrer.referralCountdownDeadline) {
+      const countdownStarted = new Date(referrer.referralCountdownDeadline.getTime() - 10 * 24 * 60 * 60 * 1000);
+      const msElapsed = now.getTime() - countdownStarted.getTime();
+      isLegend = msElapsed <= 7 * 24 * 60 * 60 * 1000 && activeReferrals.length > 10;
+    }
+
     const refereeIds = activeReferrals.map(r => r.refereeId);
-    // Fix: use inArray (already imported) instead of raw SQL interpolation to prevent SQL injection
     const sundayEarnings = await db
       .select({ sum: sql<string>`coalesce(sum(amount::numeric), 0)` })
       .from(transactionsTable)
@@ -159,7 +238,10 @@ export async function processSundayBonuses() {
     if (totalEarnings <= 0) continue;
 
     let bonusPercent: number;
-    if (isCurrentlyElite) {
+    if (isLegend) {
+      // Legend: 30% + extra 5-10%
+      bonusPercent = 30 + Math.floor(Math.random() * 6) + 5;
+    } else if (isCurrentlyElite) {
       bonusPercent = 30;
     } else {
       bonusPercent = Math.floor(Math.random() * 6) + 5;
@@ -180,16 +262,36 @@ export async function processSundayBonuses() {
       payoutDate: now,
     });
 
+    const tierLabel = isLegend ? "Legend" : isCurrentlyElite ? "Elite" : "Standard";
     await db.insert(activityLogsTable).values({
       userId: referrer.id,
       userEmail: referrer.email,
       action: "referral_bonus_paid",
-      details: `Sunday referral bonus: ${bonusPercent}% of KES ${totalEarnings} = KES ${bonusAmount.toFixed(2)} (${isCurrentlyElite ? "Elite" : "Standard"})`,
+      details: `Sunday referral bonus: ${bonusPercent}% of KES ${totalEarnings} = KES ${bonusAmount.toFixed(2)} (${tierLabel})`,
       ipAddress: "system",
     });
+
+    // Email notification for the bonus
+    void (async () => {
+      try {
+        const { sendEmailNotification, getDefaultSmtpConfig } = await import("../lib/email");
+        await sendEmailNotification({
+          email: referrer.email,
+          name: referrer.fullName,
+          subject: `🎁 Sunday Referral Bonus: KES ${bonusAmount.toFixed(2)} credited!`,
+          heading: "Your Sunday Bonus Is Here!",
+          body: `<p>Hi <strong>${referrer.fullName}</strong>,</p>
+<p>Your weekly referral bonus has been automatically credited to your Zenti balance.</p>
+<p><strong>Bonus Amount:</strong> KES ${bonusAmount.toFixed(2)}<br/><strong>Bonus Rate:</strong> ${bonusPercent}%<br/><strong>Tier:</strong> ${tierLabel}</p>
+<p>This amount is now available in your Zenti wallet. No action needed — it was added automatically.</p>`,
+          icon: "🎁",
+        }, getDefaultSmtpConfig());
+      } catch { /* silent */ }
+    })();
   }
 }
 
+/* ── POST /trigger-sunday-bonus (admin only) ────────────────────────────── */
 router.post("/trigger-sunday-bonus", requireAuth, async (req: AuthRequest, res: Response) => {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user || (user.role !== "admin" && user.role !== "superadmin")) {
@@ -199,6 +301,7 @@ router.post("/trigger-sunday-bonus", requireAuth, async (req: AuthRequest, res: 
   res.json({ message: "Sunday bonuses processed" });
 });
 
+/* ── GET /admin/overview ─────────────────────────────────────────────────── */
 router.get("/admin/overview", requireAuth, async (req: AuthRequest, res: Response) => {
   const [caller] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!caller || (caller.role !== "admin" && caller.role !== "superadmin")) {

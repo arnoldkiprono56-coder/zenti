@@ -32,10 +32,20 @@ router.post("/internship", requireAuth, async (req: AuthRequest, res: Response) 
     res.status(400).json({ error: "Internship package already activated" });
     return;
   }
-  const [internshipPlan] = await db.select().from(plansTable).where(eq(plansTable.isInternship, true)).limit(1);
+  let [internshipPlan] = await db.select().from(plansTable).where(eq(plansTable.isInternship, true)).limit(1);
   if (!internshipPlan) {
-    res.status(400).json({ error: "Internship plan not configured" });
-    return;
+    // Auto-seed the internship plan if an admin hasn't created one yet
+    const [created] = await db.insert(plansTable).values({
+      name: "2-Day Internship Package",
+      description: "Free starter package — earn KES 200 over 2 days, no deposit needed",
+      minDeposit: "0",
+      dailyReturnPercent: "0",
+      durationDays: 2,
+      isActive: true,
+      isInternship: true,
+      internshipFixedEarning: "200",
+    }).returning();
+    internshipPlan = created;
   }
   const startedAt = new Date();
   const completesAt = new Date(startedAt.getTime() + 2 * 24 * 60 * 60 * 1000);

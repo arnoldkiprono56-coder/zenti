@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useGetSettings } from "@workspace/api-client-react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { OtpDialog } from "@/components/otp-dialog";
+import { SupportChat } from "@/components/support-chat";
 import { apiUrl } from "@/lib/api-url";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -145,6 +146,7 @@ export function Layout({ children, requireAuth = false, requireAdmin = false }: 
         {children}
       </main>
       <Footer />
+      {isAuthenticated && <SupportChat />}
     </div>
   );
 }

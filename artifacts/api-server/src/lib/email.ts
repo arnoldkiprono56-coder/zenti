@@ -554,6 +554,89 @@ export async function sendAccountBannedEmail(
     `Your Zenti account has been suspended.\nReason: ${data.reason}\n\nTo appeal, email: ${data.supportEmail}`);
 }
 
+/* ─── Referral Program Welcome (apply flow) ──────────────────────────────── */
+
+export async function sendReferralWelcomeEmail(
+  user: { email: string; name: string },
+  data: { referralLink: string; referralCode: string },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const body = `
+    ${hi(user.name)}
+    ${hero("🤝", "Welcome to the Zenti Referral Program!")}
+    ${para("You are now enrolled in the Zenti B2C Referral Program. Here is your unique invite link:")}
+    <div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:14px;padding:20px;text-align:center;margin:20px 0;">
+      <p style="margin:0 0 8px;color:#6b7280;font-size:12px;font-weight:600;">YOUR REFERRAL LINK</p>
+      <p style="margin:0 0 12px;color:#14532d;font-size:13px;word-break:break-all;font-family:'Courier New',monospace;">${data.referralLink}</p>
+      <p style="margin:0;color:#6b7280;font-size:12px;">Code: <strong style="color:#14532d;letter-spacing:2px;">${data.referralCode}</strong></p>
+    </div>
+    <h3 style="margin:24px 0 12px;color:#111827;font-size:15px;font-weight:700;">How the System Works (Auto-Credited — No Action Needed)</h3>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+      <tr><td style="padding:10px 0;border-bottom:1px solid #d1fae5;">
+        <span style="font-size:18px;margin-right:10px;vertical-align:middle;">⚡</span>
+        <span style="color:#374151;font-size:14px;vertical-align:middle;"><strong>Instant Invitation Bonus:</strong> When your friend makes their first M-Pesa deposit, <strong>10% of that amount is automatically added to your Zenti balance</strong> — instantly, with no action from you.</span>
+      </td></tr>
+      <tr><td style="padding:10px 0;border-bottom:1px solid #d1fae5;">
+        <span style="font-size:18px;margin-right:10px;vertical-align:middle;">📅</span>
+        <span style="color:#374151;font-size:14px;vertical-align:middle;"><strong>Sunday Bonus:</strong> Every Sunday at 11:59 PM, our system automatically calculates and credits your referral bonus directly to your balance — <strong>no manual claiming required</strong>.</span>
+      </td></tr>
+      <tr><td style="padding:10px 0;">
+        <span style="font-size:18px;margin-right:10px;vertical-align:middle;">🏆</span>
+        <span style="color:#374151;font-size:14px;vertical-align:middle;"><strong>Elite Bonus (30%):</strong> Get 5 active investors within 10 days to unlock Elite. If you get more than 10 in your first week, you earn an extra 5–10% on top (Legend tier)!</span>
+      </td></tr>
+    </table>
+    ${warningBox("FRAUD WARNING — IMPORTANT: Our system automatically monitors all referral activity for fraud. Creating fake accounts, using bots, or manipulating the referral system will result in an <strong>immediate permanent ban</strong> and forfeiture of all bonuses. Both the referrer and the fake referees will be banned. Play fair and earn real bonuses!")}
+    <h3 style="margin:20px 0 12px;color:#111827;font-size:15px;font-weight:700;">Withdrawal of Referral Bonuses</h3>
+    ${para("Referral bonuses are credited directly to your Zenti wallet. There is <strong>no minimum withdrawal amount</strong> for referral bonuses. You can withdraw them on the last day of any active investment using M-Pesa or your configured payment method.")}
+    ${cta("🔗 Go to My Referrals")}
+    ${hr()}${note("You received this because you enrolled in the Zenti Referral Program.")}`;
+  return send(cfg, user.email, `🤝 You're Enrolled in the Zenti Referral Program — Your Link is Ready!`, layout(cfg, body),
+    `You're enrolled in the Zenti Referral Program.\n\nYour link: ${data.referralLink}\nYour code: ${data.referralCode}\n\nShare your link — when friends invest, you earn automatically!`);
+}
+
+/* ─── Referral Enrollment (countdown started) ────────────────────────────── */
+
+export async function sendReferralEnrollmentEmail(
+  user: { email: string; name: string },
+  data: { referralLink: string; referralCode: string; deadlineDate: Date },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const deadline = fmtDate(data.deadlineDate);
+  const body = `
+    ${hi(user.name)}
+    ${hero("⏳", "Your Elite Challenge Has Started!", "#fff7ed", "#9a3412")}
+    ${para("Congratulations! Your first active referral just joined. Your <strong>10-day Elite Challenge</strong> has officially started.")}
+    <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:14px;padding:18px 20px;margin:20px 0;text-align:center;">
+      <p style="margin:0 0 6px;color:#9a3412;font-size:13px;font-weight:600;">⏰ YOUR DEADLINE</p>
+      <p style="margin:0;color:#7c2d12;font-size:18px;font-weight:800;">${deadline}</p>
+      <p style="margin:8px 0 0;color:#9a3412;font-size:13px;">Get 4 more active investors before this date to unlock the <strong>30% Elite Sunday Bonus</strong>!</p>
+    </div>
+    ${para(`<strong>You need 4 more active investors</strong> (people who join via your link and make a real M-Pesa deposit) by ${deadline}. You currently have 1.`)}
+    <h3 style="margin:20px 0 10px;color:#111827;font-size:14px;font-weight:700;">🏆 Elite vs Standard Bonus:</h3>
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border-collapse:collapse;">
+      <tr style="background:#f0fdf4;">
+        <td style="padding:10px 12px;border:1px solid #d1fae5;font-weight:700;color:#14532d;font-size:14px;">Elite (5+ active in 10 days)</td>
+        <td style="padding:10px 12px;border:1px solid #d1fae5;font-weight:700;color:#14532d;font-size:14px;">30% every Sunday — forever</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 12px;border:1px solid #d1fae5;color:#374151;font-size:14px;">Standard (missed deadline)</td>
+        <td style="padding:10px 12px;border:1px solid #d1fae5;color:#374151;font-size:14px;">5–10% every Sunday</td>
+      </tr>
+      <tr style="background:#fefce8;">
+        <td style="padding:10px 12px;border:1px solid #fde68a;font-weight:700;color:#92400e;font-size:14px;">🌟 Legend (10+ in first week!)</td>
+        <td style="padding:10px 12px;border:1px solid #fde68a;font-weight:700;color:#92400e;font-size:14px;">35–40% every Sunday — elite bonus!</td>
+      </tr>
+    </table>
+    <p style="margin:0 0 12px;color:#374151;font-size:14px;font-weight:600;">Your referral link:</p>
+    <div style="background:#f0fdf4;border:1px solid #d1fae5;border-radius:10px;padding:14px;font-family:'Courier New',monospace;font-size:12px;color:#14532d;word-break:break-all;margin-bottom:20px;">${data.referralLink}</div>
+    ${cta("🚀 Share My Link & Go Elite")}
+    ${hr()}${note("This is a system notification about your referral program status.")}`;
+  return send(cfg, user.email, `⏳ Elite Challenge Started — Get 4 More Investors by ${deadline}!`, layout(cfg, body),
+    `Your Elite Challenge has started! Get 4 more active investors by ${deadline} to unlock the 30% Elite Sunday Bonus.\n\nYour link: ${data.referralLink}`);
+}
+
 /* ─── Withdrawal Rejected ────────────────────────────────────────────────── */
 
 export async function sendWithdrawalRejectedEmail(
