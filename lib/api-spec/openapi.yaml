@@ -3,20 +3,33 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: InvestKE Investment Platform API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: users
+    description: User management
+  - name: investments
+    description: Investment plans and user investments
+  - name: transactions
+    description: Deposits, withdrawals, earnings
+  - name: plans
+    description: Admin investment plan templates
+  - name: admin
+    description: Admin operations
+  - name: settings
+    description: Platform settings
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +37,651 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /plans:
+    get:
+      operationId: getPlans
+      tags: [plans]
+      summary: List active investment plans
+      responses:
+        "200":
+          description: List of plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+    post:
+      operationId: createPlan
+      tags: [plans]
+      summary: Admin - create investment plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+
+  /plans/{id}:
+    get:
+      operationId: getPlan
+      tags: [plans]
+      summary: Get a plan by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+    patch:
+      operationId: updatePlan
+      tags: [plans]
+      summary: Admin - update a plan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+    delete:
+      operationId: deletePlan
+      tags: [plans]
+      summary: Admin - delete a plan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /investments:
+    get:
+      operationId: getMyInvestments
+      tags: [investments]
+      summary: Get current user's investments
+      responses:
+        "200":
+          description: Investments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Investment"
+    post:
+      operationId: createInvestment
+      tags: [investments]
+      summary: Start an investment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvestmentInput"
+      responses:
+        "201":
+          description: Investment started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Investment"
+
+  /investments/internship:
+    post:
+      operationId: activateInternship
+      tags: [investments]
+      summary: Activate 2-day internship package for new users
+      responses:
+        "201":
+          description: Activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Investment"
+        "400":
+          description: Not eligible or already activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /investments/{id}:
+    get:
+      operationId: getInvestment
+      tags: [investments]
+      summary: Get investment details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Investment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Investment"
+
+  /transactions:
+    get:
+      operationId: getMyTransactions
+      tags: [transactions]
+      summary: Get current user's transactions
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+
+  /transactions/deposit:
+    post:
+      operationId: initiateDeposit
+      tags: [transactions]
+      summary: Initiate M-Pesa deposit (STK push)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepositInput"
+      responses:
+        "200":
+          description: STK push sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepositResponse"
+
+  /transactions/withdraw:
+    post:
+      operationId: requestWithdrawal
+      tags: [transactions]
+      summary: Request a withdrawal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalInput"
+      responses:
+        "201":
+          description: Withdrawal requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [investments]
+      summary: Get user dashboard summary (balance, earnings, active plans)
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /admin/users:
+    get:
+      operationId: adminGetUsers
+      tags: [admin]
+      summary: Admin - list all users
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Users list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedUsers"
+
+  /admin/users/{id}:
+    get:
+      operationId: adminGetUser
+      tags: [admin]
+      summary: Admin - get user details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserDetail"
+    patch:
+      operationId: adminUpdateUser
+      tags: [admin]
+      summary: Admin - update user status (ban/suspend/activate)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /admin/transactions:
+    get:
+      operationId: adminGetTransactions
+      tags: [admin]
+      summary: Admin - list all transactions
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedTransactions"
+
+  /admin/transactions/{id}/approve:
+    post:
+      operationId: approveWithdrawal
+      tags: [admin]
+      summary: Admin - approve a withdrawal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /admin/transactions/{id}/reject:
+    post:
+      operationId: rejectWithdrawal
+      tags: [admin]
+      summary: Admin - reject a withdrawal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectInput"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /admin/logs:
+    get:
+      operationId: adminGetLogs
+      tags: [admin]
+      summary: Admin - get activity logs
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: userId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedLogs"
+
+  /admin/fraud-flags:
+    get:
+      operationId: adminGetFraudFlags
+      tags: [admin]
+      summary: Admin - get flagged suspicious transactions
+      responses:
+        "200":
+          description: Fraud flags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FraudFlag"
+
+  /admin/stats:
+    get:
+      operationId: adminGetStats
+      tags: [admin]
+      summary: Admin - platform-wide statistics
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /admin/settings:
+    get:
+      operationId: getSettings
+      tags: [settings]
+      summary: Get platform settings (contact email, policies)
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSettings"
+    patch:
+      operationId: updateSettings
+      tags: [settings]
+      summary: Admin - update platform settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSettingsUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSettings"
+
+  /admin/requests:
+    get:
+      operationId: adminGetRequests
+      tags: [admin]
+      summary: Admin - get all user support requests
+      responses:
+        "200":
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SupportRequest"
+
+  /otp/send:
+    post:
+      operationId: sendOtp
+      tags: [auth]
+      summary: Send OTP via WhatsApp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpSendInput"
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /otp/verify:
+    post:
+      operationId: verifyOtp
+      tags: [auth]
+      summary: Verify an OTP code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerifyInput"
+      responses:
+        "200":
+          description: Verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpVerifyResponse"
+        "400":
+          description: Invalid or expired OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /otp/send-withdrawal:
+    post:
+      operationId: sendWithdrawalOtp
+      tags: [auth]
+      summary: Send OTP for withdrawal (uses user phone on file)
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "429":
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /support/request:
+    post:
+      operationId: submitSupportRequest
+      tags: [admin]
+      summary: User - submit a support request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportRequestInput"
+      responses:
+        "201":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportRequest"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +692,617 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    RegisterInput:
+      type: object
+      required: [fullName, email, phone, password]
+      properties:
+        fullName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          description: Kenyan phone number (07XX or 01XX)
+        password:
+          type: string
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [user, token]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+
+    User:
+      type: object
+      required: [id, fullName, email, phone, role, status, balance, createdAt]
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [user, admin, superadmin]
+        status:
+          type: string
+          enum: [active, suspended, banned]
+        balance:
+          type: number
+          description: Current wallet balance in KES
+        totalEarned:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+        isInternshipEligible:
+          type: boolean
+        internshipActivated:
+          type: boolean
+
+    Plan:
+      type: object
+      required: [id, name, minDeposit, dailyReturnPercent, durationDays, isActive]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        minDeposit:
+          type: number
+          description: Fixed plan cost in KES
+        dailyReturnPercent:
+          type: number
+          description: Daily return as percentage
+        durationDays:
+          type: integer
+        isActive:
+          type: boolean
+        isInternship:
+          type: boolean
+        internshipFixedEarning:
+          type: ["number", "null"]
+          description: Fixed KES earning for internship package (200 KES)
+        createdAt:
+          type: string
+          format: date-time
+
+    PlanInput:
+      type: object
+      required: [name, minDeposit, dailyReturnPercent, durationDays]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        minDeposit:
+          type: number
+        dailyReturnPercent:
+          type: number
+        durationDays:
+          type: integer
+        isActive:
+          type: boolean
+        isInternship:
+          type: boolean
+        internshipFixedEarning:
+          type: number
+
+    PlanUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        minDeposit:
+          type: number
+        dailyReturnPercent:
+          type: number
+        durationDays:
+          type: integer
+        isActive:
+          type: boolean
+
+    Investment:
+      type: object
+      required: [id, userId, planId, amountInvested, totalEarned, status, startedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        planId:
+          type: integer
+        plan:
+          $ref: "#/components/schemas/Plan"
+        amountInvested:
+          type: number
+        dailyEarning:
+          type: number
+        totalEarned:
+          type: number
+        expectedTotal:
+          type: number
+        progressPercent:
+          type: number
+        status:
+          type: string
+          enum: [active, completed, cancelled]
+        startedAt:
+          type: string
+          format: date-time
+        completesAt:
+          type: ["string", "null"]
+          format: date-time
+        lastEarningAt:
+          type: ["string", "null"]
+          format: date-time
+
+    InvestmentInput:
+      type: object
+      required: [planId, amount]
+      properties:
+        planId:
+          type: integer
+        amount:
+          type: number
+
+    Transaction:
+      type: object
+      required: [id, userId, type, amount, fee, status, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        type:
+          type: string
+          enum: [deposit, withdrawal, earning]
+        amount:
+          type: number
+        fee:
+          type: number
+          description: Processing fee deducted (withdrawals only)
+        status:
+          type: string
+          enum: [pending, completed, failed, rejected]
+        method:
+          type: ["string", "null"]
+          enum: [mpesa, airtel_money, bank, null]
+        phoneOrAccount:
+          type: ["string", "null"]
+        reference:
+          type: ["string", "null"]
+        isFlagged:
+          type: boolean
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    DepositInput:
+      type: object
+      required: [amount, phone]
+      properties:
+        amount:
+          type: number
+          description: Amount in KES
+        phone:
+          type: string
+          description: M-Pesa phone number
+
+    DepositResponse:
+      type: object
+      required: [message, transactionId]
+      properties:
+        message:
+          type: string
+        transactionId:
+          type: integer
+        checkoutRequestId:
+          type: ["string", "null"]
+
+    WithdrawalInput:
+      type: object
+      required: [amount, method, phoneOrAccount]
+      properties:
+        amount:
+          type: number
+        method:
+          type: string
+          enum: [mpesa, airtel_money, bank]
+        phoneOrAccount:
+          type: string
+          description: Phone number for mobile money or account number for bank
+
+    DashboardSummary:
+      type: object
+      required: [balance, totalInvested, totalEarned, activeInvestments, pendingWithdrawals]
+      properties:
+        balance:
+          type: number
+        totalInvested:
+          type: number
+        totalEarned:
+          type: number
+        activeInvestments:
+          type: integer
+        pendingWithdrawals:
+          type: number
+        todayEarnings:
+          type: number
+        internshipProgress:
+          type: ["number", "null"]
+          description: Internship progress percentage if active
+
+    AdminUserDetail:
+      type: object
+      required: [user, investments, transactions]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        investments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Investment"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        totalDeposited:
+          type: number
+        totalWithdrawn:
+          type: number
+
+    AdminUserUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, suspended, banned]
+        role:
+          type: string
+          enum: [user, admin]
+        notes:
+          type: string
+
+    PaginatedUsers:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    PaginatedTransactions:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    PaginatedLogs:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityLog"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+
+    ActivityLog:
+      type: object
+      required: [id, userId, action, ipAddress, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: ["integer", "null"]
+        userEmail:
+          type: ["string", "null"]
+        action:
+          type: string
+        details:
+          type: ["string", "null"]
+        ipAddress:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    FraudFlag:
+      type: object
+      required: [id, transactionId, reason, createdAt]
+      properties:
+        id:
+          type: integer
+        transactionId:
+          type: integer
+        transaction:
+          $ref: "#/components/schemas/Transaction"
+        reason:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high]
+        resolved:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminStats:
+      type: object
+      required: [totalUsers, activeUsers, totalDeposited, totalWithdrawn, totalEarningsPaid, pendingWithdrawals, fraudFlagsOpen]
+      properties:
+        totalUsers:
+          type: integer
+        activeUsers:
+          type: integer
+        newUsersToday:
+          type: integer
+        totalDeposited:
+          type: number
+        totalWithdrawn:
+          type: number
+        totalEarningsPaid:
+          type: number
+        pendingWithdrawals:
+          type: number
+        pendingWithdrawalsCount:
+          type: integer
+        fraudFlagsOpen:
+          type: integer
+        activeInvestments:
+          type: integer
+
+    PlatformSettings:
+      type: object
+      required: [id, supportEmail, contactPhone, companyName, companyAddress]
+      properties:
+        id:
+          type: integer
+        supportEmail:
+          type: string
+        contactPhone:
+          type: string
+        companyName:
+          type: string
+        companyAddress:
+          type: string
+        termsOfService:
+          type: ["string", "null"]
+        privacyPolicy:
+          type: ["string", "null"]
+        aboutUs:
+          type: ["string", "null"]
+        maintenanceMode:
+          type: boolean
+        maintenanceBannerMessage:
+          type: string
+        maintenanceEta:
+          type: ["string", "null"]
+        internshipActiveFrom:
+          type: ["string", "null"]
+          format: date
+        internshipActiveTo:
+          type: ["string", "null"]
+          format: date
+        verificationMethod:
+          type: string
+          enum: [auto, whatsapp, email]
+        smtpHost:
+          type: string
+        smtpPort:
+          type: string
+        smtpFromEmail:
+          type: string
+        smtpFromName:
+          type: string
+        withdrawalFeePercent:
+          type: number
+        dailyWithdrawalLimitKES:
+          type: number
+        maxActiveInvestments:
+          type: integer
+        withdrawalCooldownHours:
+          type: integer
+        minDepositHoldingHours:
+          type: integer
+
+    PlatformSettingsUpdate:
+      type: object
+      properties:
+        supportEmail:
+          type: string
+        contactPhone:
+          type: string
+        companyName:
+          type: string
+        companyAddress:
+          type: string
+        termsOfService:
+          type: string
+        privacyPolicy:
+          type: string
+        aboutUs:
+          type: string
+        maintenanceMode:
+          type: boolean
+        maintenanceBannerMessage:
+          type: string
+        maintenanceEta:
+          type: string
+        internshipActiveFrom:
+          type: string
+          format: date
+        internshipActiveTo:
+          type: string
+          format: date
+        verificationMethod:
+          type: string
+          enum: [auto, whatsapp, email]
+        smtpHost:
+          type: string
+        smtpPort:
+          type: string
+        smtpFromEmail:
+          type: string
+        smtpFromName:
+          type: string
+        withdrawalFeePercent:
+          type: number
+        dailyWithdrawalLimitKES:
+          type: number
+        maxActiveInvestments:
+          type: integer
+        withdrawalCooldownHours:
+          type: integer
+        minDepositHoldingHours:
+          type: integer
+
+    SupportRequest:
+      type: object
+      required: [id, name, email, subject, message, status, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: ["integer", "null"]
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: ["string", "null"]
+        subject:
+          type: string
+        category:
+          type: string
+        priority:
+          type: string
+          enum: [normal, high, urgent]
+        message:
+          type: string
+        status:
+          type: string
+          enum: [open, in_progress, resolved]
+        adminReply:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    OtpSendInput:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+        reason:
+          type: string
+        ip:
+          type: string
+        location:
+          type: string
+
+    OtpVerifyInput:
+      type: object
+      required: [phone, code]
+      properties:
+        phone:
+          type: string
+        code:
+          type: string
+
+    OtpVerifyResponse:
+      type: object
+      required: [ok, verified]
+      properties:
+        ok:
+          type: boolean
+        verified:
+          type: boolean
+
+    SupportRequestInput:
+      type: object
+      required: [name, email, subject, message]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        subject:
+          type: string
+        category:
+          type: string
+        priority:
+          type: string
+          enum: [normal, high, urgent]
+        message:
+          type: string
+
+    RejectInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string

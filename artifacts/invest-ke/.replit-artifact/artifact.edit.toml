@@ -1,0 +1,33 @@
+kind = "react-vite"
+previewPath = "/"
+title = "Zenti Investment Platform"
+version = "1.0.0"
+
+[[services]]
+localPort = 25538
+name = "Zenti Frontend"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/invest-ke run dev"
+
+[services.development.env]
+PORT = "25538"
+BASE_PATH = "/"
+
+[services.production]
+
+[services.production.build]
+args = ["pnpm", "--filter", "@workspace/invest-ke", "run", "build"]
+
+[services.production.build.env]
+NODE_ENV = "production"
+BASE_PATH = "/"
+
+[services.production.run]
+args = ["pnpm", "--filter", "@workspace/invest-ke", "run", "serve"]
+
+[services.production.run.env]
+PORT = "25538"
+NODE_ENV = "production"
+BASE_PATH = "/"

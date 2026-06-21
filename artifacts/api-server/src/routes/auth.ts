@@ -1,0 +1,329 @@
+import { Router, Request, Response } from "express";
+import bcrypt from "bcryptjs";
+import { db } from "@workspace/db";
+import { usersTable, referralsTable, otpsTable } from "@workspace/db";
+import { activityLogsTable } from "@workspace/db";
+import { platformSettingsTable } from "@workspace/db";
+import { eq, and, gt } from "drizzle-orm";
+import { signToken, requireAuth, AuthRequest } from "../middlewares/auth";
+import { generateReferralCode } from "./referrals";
+
+const router = Router();
+
+router.post("/register", async (req: Request, res: Response) => {
+  const { fullName, email, phone, password, refCode } = req.body;
+  if (!fullName || !email || !phone || !password) {
+    res.status(400).json({ error: "All fields are required" });
+    return;
+  }
+  if (!/^(07|01)\d{8}$/.test(phone.replace(/\s/g, ""))) {
+    res.status(400).json({ error: "Phone must be a valid Kenyan number (07XX or 01XX)" });
+    return;
+  }
+  const existing = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
+  if (existing.length > 0) {
+    res.status(400).json({ error: "Email already registered" });
+    return;
+  }
+
+  // Resolve referrer if ref code provided
+  let referredById: number | undefined;
+  if (refCode) {
+    const [referrer] = await db.select().from(usersTable).where(eq(usersTable.referralCode, String(refCode).toUpperCase())).limit(1);
+    if (referrer) referredById = referrer.id;
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  // Generate unique referral code
+  let referralCode = generateReferralCode();
+  let codeExists = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.referralCode, referralCode)).limit(1);
+  while (codeExists.length > 0) {
+    referralCode = generateReferralCode();
+    codeExists = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.referralCode, referralCode)).limit(1);
+  }
+
+  // Check if user qualifies for internship (June–July 2026)
+  const [settings] = await db.select().from(platformSettingsTable).limit(1);
+  const now = new Date();
+  let isInternshipEligible = false;
+  if (settings?.internshipActiveFrom && settings?.internshipActiveTo) {
+    const from = new Date(settings.internshipActiveFrom);
+    const to = new Date(settings.internshipActiveTo);
+    isInternshipEligible = now >= from && now <= to;
+  } else {
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    isInternshipEligible = year === 2026 && (month === 6 || month === 7);
+  }
+
+  // Check if OTP was genuinely verified for this phone in the last 5 minutes
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const normalizedPhone = phone.replace(/\s/g, "");
+  const [recentVerifiedOtp] = await db
+    .select({ id: otpsTable.id })
+    .from(otpsTable)
+    .where(and(
+      eq(otpsTable.phone, normalizedPhone),
+      eq(otpsTable.used, true),
+      gt(otpsTable.createdAt, fiveMinutesAgo),
+    ))
+    .limit(1);
+
+  const [user] = await db.insert(usersTable).values({
+    fullName,
+    email,
+    phone: normalizedPhone,
+    passwordHash,
+    isInternshipEligible,
+    isVerified: !!recentVerifiedOtp,
+    referralCode,
+    referredById,
+  }).returning();
+
+  // Create referral record if referred
+  if (referredById) {
+    await db.insert(referralsTable).values({
+      referrerId: referredById,
+      refereeId: user.id,
+    });
+  }
+
+  await db.insert(activityLogsTable).values({
+    userId: user.id,
+    userEmail: user.email,
+    action: "user_registered",
+    details: `New user registered: ${fullName}${referredById ? ` (referred by user #${referredById})` : ""}`,
+    ipAddress: req.ip || "unknown",
+  });
+
+  const token = signToken(user.id);
+  res.status(201).json({ user: serializeUser(user), token });
+
+  // Fire-and-forget welcome WhatsApp message
+  (async () => {
+    try {
+      const { sendMessage } = await import("../lib/whatsapp");
+      await sendMessage(phone,
+        `🎉 *Welcome to Zenti, ${fullName}!*\n\n` +
+        `Your account has been created successfully.\n\n` +
+        `💼 *Start earning today:*\n` +
+        `• Deposit via M-Pesa\n` +
+        `• Choose an investment plan\n` +
+        `• Earn daily returns\n\n` +
+        `📲 Log in at https://zenti-investiment.vercel.app and start building your wealth! 🚀`
+      );
+    } catch { /* silent */ }
+  })();
+
+  // Fire-and-forget welcome email
+  (async () => {
+    try {
+      const { sendWelcomeEmail } = await import("../lib/email");
+      await sendWelcomeEmail({ email, name: fullName });
+    } catch { /* silent */ }
+  })();
+});
+
+router.post("/pre-login", async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ error: "Email and password required" });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
+  if (!user) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+  if (user.status === "banned") {
+    res.status(401).json({ error: "Your account has been banned" });
+    return;
+  }
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+  const skipOtp = user.role === "admin" || user.role === "superadmin";
+  res.json({ phone: user.phone, role: user.role, skipOtp });
+});
+
+router.post("/login", async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ error: "Email and password required" });
+    return;
+  }
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
+  if (!user) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+  if (user.status === "banned") {
+    res.status(401).json({ error: "Your account has been banned" });
+    return;
+  }
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+  await db.insert(activityLogsTable).values({
+    userId: user.id,
+    userEmail: user.email,
+    action: "user_login",
+    details: `User logged in`,
+    ipAddress: req.ip || "unknown",
+  });
+  const token = signToken(user.id);
+  res.json({ user: serializeUser(user), token });
+});
+
+router.post("/logout", async (req: AuthRequest, res: Response) => {
+  res.json({ message: "Logged out" });
+});
+
+router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  res.json(serializeUser(user));
+});
+
+// Verify account: called after OTP is confirmed to mark user as verified
+router.post("/verify-account", async (req: Request, res: Response) => {
+  const { phone, code } = req.body as { phone: string; code: string };
+  if (!phone || !code) {
+    res.status(400).json({ error: "Phone and code are required" });
+    return;
+  }
+
+  const normalizedPhone = phone.replace(/[\s\-]/g, "").replace(/^\+254/, "0").replace(/^254/, "0");
+  const now = new Date();
+
+  // Verify OTP
+  const [otp] = await db
+    .select()
+    .from(otpsTable)
+    .where(and(
+      eq(otpsTable.phone, normalizedPhone),
+      eq(otpsTable.code, code),
+      eq(otpsTable.used, false),
+      gt(otpsTable.expiresAt, now),
+    ))
+    .orderBy(otpsTable.createdAt)
+    .limit(1);
+
+  if (!otp) {
+    res.status(400).json({ error: "Invalid or expired verification code. Please request a new one." });
+    return;
+  }
+
+  await db.update(otpsTable).set({ used: true }).where(eq(otpsTable.id, otp.id));
+
+  // Find user by phone and mark verified
+  const [user] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.phone, normalizedPhone))
+    .limit(1);
+
+  if (!user) {
+    res.status(404).json({ error: "No account found for this phone number" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(usersTable)
+    .set({ isVerified: true, updatedAt: new Date() })
+    .where(eq(usersTable.id, user.id))
+    .returning();
+
+  await db.insert(activityLogsTable).values({
+    userId: updated.id,
+    userEmail: updated.email,
+    action: "account_verified",
+    details: "Account verified via OTP",
+    ipAddress: req.ip || "unknown",
+  });
+
+  const token = signToken(updated.id);
+  res.json({ user: serializeUser(updated), token, verified: true });
+});
+
+// Forgot password: verify OTP then set new password
+router.post("/reset-password", async (req: Request, res: Response) => {
+  const { phone, code, newPassword } = req.body as { phone: string; code: string; newPassword: string };
+  if (!phone || !code || !newPassword) {
+    res.status(400).json({ error: "Phone, code, and new password are required" });
+    return;
+  }
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters" });
+    return;
+  }
+
+  const normalizedPhone = phone.replace(/[\s\-]/g, "").replace(/^\+254/, "0").replace(/^254/, "0");
+  const now = new Date();
+
+  const [otp] = await db
+    .select()
+    .from(otpsTable)
+    .where(and(
+      eq(otpsTable.phone, normalizedPhone),
+      eq(otpsTable.code, code),
+      eq(otpsTable.used, false),
+      gt(otpsTable.expiresAt, now),
+    ))
+    .orderBy(otpsTable.createdAt)
+    .limit(1);
+
+  if (!otp) {
+    res.status(400).json({ error: "Invalid or expired code. Please request a new one." });
+    return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.phone, normalizedPhone)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: "No account found for this phone number" });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await db.update(otpsTable).set({ used: true }).where(eq(otpsTable.id, otp.id));
+  await db.update(usersTable).set({ passwordHash, updatedAt: new Date() }).where(eq(usersTable.id, user.id));
+
+  await db.insert(activityLogsTable).values({
+    userId: user.id,
+    userEmail: user.email,
+    action: "password_reset",
+    details: "Password reset via OTP",
+    ipAddress: req.ip || "unknown",
+  });
+
+  res.json({ ok: true, message: "Password updated successfully. You can now log in." });
+});
+
+export function serializeUser(user: typeof usersTable.$inferSelect) {
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    status: user.status,
+    balance: parseFloat(user.balance ?? "0"),
+    totalEarned: parseFloat(user.totalEarned ?? "0"),
+    createdAt: user.createdAt,
+    isVerified: user.isVerified,
+    isInternshipEligible: user.isInternshipEligible,
+    internshipActivated: user.internshipActivated,
+    referralCode: user.referralCode,
+    referralStatus: user.referralStatus,
+  };
+}
+
+export default router;
