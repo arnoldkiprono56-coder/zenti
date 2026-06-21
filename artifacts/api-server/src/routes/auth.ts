@@ -7,8 +7,18 @@ import { platformSettingsTable } from "@workspace/db";
 import { eq, and, gt } from "drizzle-orm";
 import { signToken, requireAuth, AuthRequest } from "../middlewares/auth";
 import { generateReferralCode } from "./referrals";
+import { autoBanCheck, buildDeviceFingerprint } from "../lib/auto-ban";
 
 const router = Router();
+
+function getClientIp(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded) {
+    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(",")[0];
+    return first?.trim() ?? req.ip ?? "unknown";
+  }
+  return req.ip ?? "unknown";
+}
 
 router.post("/register", async (req: Request, res: Response) => {
   const { fullName, email, phone, password, refCode } = req.body;
@@ -70,6 +80,13 @@ router.post("/register", async (req: Request, res: Response) => {
     ))
     .limit(1);
 
+  // Capture device fingerprint and registration IP
+  const registrationIp = getClientIp(req);
+  const deviceFingerprint = buildDeviceFingerprint(
+    req.headers["user-agent"] ?? "",
+    req.headers["accept-language"] ?? "",
+  );
+
   const [user] = await db.insert(usersTable).values({
     fullName,
     email,
@@ -79,6 +96,8 @@ router.post("/register", async (req: Request, res: Response) => {
     isVerified: !!recentVerifiedOtp,
     referralCode,
     referredById,
+    registrationIp,
+    deviceFingerprint,
   }).returning();
 
   // Create referral record if referred
@@ -93,12 +112,24 @@ router.post("/register", async (req: Request, res: Response) => {
     userId: user.id,
     userEmail: user.email,
     action: "user_registered",
-    details: `New user registered: ${fullName}${referredById ? ` (referred by user #${referredById})` : ""}`,
-    ipAddress: req.ip || "unknown",
+    details: `New user registered: ${fullName}${referredById ? ` (referred by user #${referredById})` : ""} — IP: ${registrationIp}`,
+    ipAddress: registrationIp,
   });
 
   const token = signToken(user.id);
   res.status(201).json({ user: serializeUser(user), token });
+
+  // Fire-and-forget: auto-ban check (runs in background after response is sent)
+  // User is allowed to register; ban happens silently if fraud is detected
+  setTimeout(() => {
+    autoBanCheck(user.id, normalizedPhone, registrationIp, deviceFingerprint).then((result) => {
+      if (result.banned) {
+        console.warn(`[AutoBan] User #${user.id} (${email}) banned: ${result.reason} — ${result.accountsAffected} account(s) affected`);
+      }
+    }).catch((err: unknown) => {
+      console.error("[AutoBan] Check failed:", err instanceof Error ? err.message : err);
+    });
+  }, 2 * 60 * 1000); // 2-minute delay so user sees successful registration first
 
   // Fire-and-forget welcome WhatsApp message
   (async () => {
@@ -111,7 +142,7 @@ router.post("/register", async (req: Request, res: Response) => {
         `• Deposit via M-Pesa\n` +
         `• Choose an investment plan\n` +
         `• Earn daily returns\n\n` +
-        `📲 Log in at https://zenti-investiment.vercel.app and start building your wealth! 🚀`
+        `📲 Log in at https://zenti.run.place and start building your wealth! 🚀`
       );
     } catch { /* silent */ }
   })();
@@ -137,7 +168,12 @@ router.post("/pre-login", async (req: Request, res: Response) => {
     return;
   }
   if (user.status === "banned") {
-    res.status(401).json({ error: "Your account has been banned" });
+    res.status(403).json({
+      error: "Your account has been suspended due to a violation of our Terms of Service.",
+      banned: true,
+      reason: user.bannedReason ?? "Account policy violation",
+      supportEmail: "support@zenti.run.place",
+    });
     return;
   }
   const valid = await bcrypt.compare(password, user.passwordHash);
@@ -161,7 +197,12 @@ router.post("/login", async (req: Request, res: Response) => {
     return;
   }
   if (user.status === "banned") {
-    res.status(401).json({ error: "Your account has been banned" });
+    res.status(403).json({
+      error: "Your account has been suspended due to a violation of our Terms of Service.",
+      banned: true,
+      reason: user.bannedReason ?? "Account policy violation",
+      supportEmail: "support@zenti.run.place",
+    });
     return;
   }
   const valid = await bcrypt.compare(password, user.passwordHash);
@@ -188,6 +229,15 @@ router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user) {
     res.status(404).json({ error: "User not found" });
+    return;
+  }
+  if (user.status === "banned") {
+    res.status(403).json({
+      error: "Your account has been suspended.",
+      banned: true,
+      reason: user.bannedReason ?? "Account policy violation",
+      supportEmail: "support@zenti.run.place",
+    });
     return;
   }
   res.json(serializeUser(user));

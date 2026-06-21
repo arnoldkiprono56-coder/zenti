@@ -159,13 +159,20 @@ export default function Dashboard() {
                   </p>
                 </div>
               </div>
-              <Button
-                onClick={handleClaim}
-                disabled={claiming || claimLoading}
-                className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white shrink-0 font-bold"
-              >
-                {claiming ? "Claiming..." : "✅ Claim Now"}
-              </Button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button
+                  onClick={handleClaim}
+                  disabled={claiming || claimLoading}
+                  className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white shrink-0 font-bold"
+                >
+                  {claiming ? "Claiming..." : "✅ Claim Now"}
+                </Button>
+                <Link href="/earnings/history">
+                  <Button variant="outline" size="sm" className="shrink-0 text-xs border-green-300 text-green-700 hover:bg-green-100">
+                    History
+                  </Button>
+                </Link>
+              </div>
             </div>
           </div>
         )}

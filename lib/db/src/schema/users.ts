@@ -25,6 +25,10 @@ export const usersTable = pgTable("users", {
   referralCountdownDeadline: timestamp("referral_countdown_deadline"),
   isVerified: boolean("is_verified").notNull().default(false),
   googleId: text("google_id"),
+  registrationIp: text("registration_ip"),
+  deviceFingerprint: text("device_fingerprint"),
+  bannedReason: text("banned_reason"),
+  bannedAt: timestamp("banned_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -33,9 +33,32 @@ async function getVerificationMethod(): Promise<{
     return { method: "email", settings };
   }
 
-  // auto: try WhatsApp first, fall back to email if disconnected
-  const status = await checkGatewayStatus();
-  return { method: status.connected ? "whatsapp" : "email", settings };
+  // auto: if BOT_BASE_URL is not configured, go straight to email (never WhatsApp)
+  const botBaseUrl = process.env["BOT_BASE_URL"];
+  if (!botBaseUrl || botBaseUrl.trim() === "") {
+    return { method: "email", settings };
+  }
+
+  // auto: try WhatsApp gateway, fall back to email if not reachable
+  try {
+    const status = await checkGatewayStatus();
+    return { method: status.connected ? "whatsapp" : "email", settings };
+  } catch {
+    return { method: "email", settings };
+  }
+}
+
+function buildSmtpConfig(settings: any) {
+  const user = process.env["SMTP_USER"] ?? "";
+  const pass = process.env["SMTP_PASS"] ?? "";
+  return {
+    host: settings?.smtpHost ?? "smtp.gmail.com",
+    port: parseInt(settings?.smtpPort ?? "587", 10) || 587,
+    user,
+    pass,
+    fromEmail: settings?.smtpFromEmail || user,
+    fromName: settings?.smtpFromName ?? "Zenti",
+  };
 }
 
 async function saveAndSendOtp(
@@ -45,7 +68,7 @@ async function saveAndSendOtp(
   userName?: string,
   ip?: string,
   _location?: string,
-): Promise<{ code: string; channel: "whatsapp" | "email" }> {
+): Promise<{ code: string; channel: "whatsapp" | "email"; delivered: boolean; error?: string }> {
   const code = generateCode();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -53,34 +76,38 @@ async function saveAndSendOtp(
 
   const { method, settings } = await getVerificationMethod();
 
-  if (method === "email" && email) {
-    // Fire email in background
-    sendEmailOtp({ email, code, reason, name: userName }, settings ? {
-      host: settings.smtpHost,
-      port: parseInt(settings.smtpPort, 10) || 587,
-      user: process.env["SMTP_USER"] ?? "",
-      pass: process.env["SMTP_PASS"] ?? "",
-      fromEmail: settings.smtpFromEmail || (process.env["SMTP_USER"] ?? ""),
-      fromName: settings.smtpFromName ?? "Zenti",
-    } : undefined).then((result) => {
+  if (method === "email") {
+    if (!email) {
+      console.warn(`[OTP] Email method selected but no email provided for phone ${phone.slice(0, 4)}****`);
+      // Fall through to WhatsApp even if email method selected but no email given
+    } else {
+      const smtpCfg = buildSmtpConfig(settings);
+      const result = await sendEmailOtp({ email, code, reason, name: userName }, smtpCfg);
       if (!result.delivered) {
-        console.warn(`[OTP] Email delivery failed for ${email}: ${result.error ?? "unknown"}`);
+        console.error(`[OTP] Email delivery failed for ${email}: ${result.error ?? "unknown"}`);
+        return { code, channel: "email", delivered: false, error: result.error };
       }
-    }).catch((err: unknown) => {
-      console.error("[OTP] Email error:", err instanceof Error ? err.message : err);
-    });
-    return { code, channel: "email" };
+      return { code, channel: "email", delivered: true };
+    }
   }
 
-  // WhatsApp (default or auto+connected)
-  sendOtp({ phone, code, reason, ip }).then((result) => {
-    if (!result.delivered) {
-      console.warn(`[OTP] WhatsApp delivery failed for ${phone.slice(0, 4)}****: ${result.error ?? "unknown"}`);
+  // WhatsApp
+  const result = await sendOtp({ phone, code, reason, ip });
+  if (!result.delivered) {
+    console.warn(`[OTP] WhatsApp delivery failed for ${phone.slice(0, 4)}****: ${result.error ?? "unknown"}`);
+    // If WhatsApp fails and we have an email, try email as fallback
+    if (email) {
+      const [settings2] = await db.select().from(platformSettingsTable).limit(1) as any[];
+      const smtpCfg = buildSmtpConfig(settings2);
+      const emailResult = await sendEmailOtp({ email, code, reason, name: userName }, smtpCfg);
+      if (emailResult.delivered) {
+        return { code, channel: "email", delivered: true };
+      }
+      return { code, channel: "email", delivered: false, error: emailResult.error };
     }
-  }).catch((err: unknown) => {
-    console.error("[OTP] Gateway error:", err instanceof Error ? err.message : err);
-  });
-  return { code, channel: "whatsapp" };
+    return { code, channel: "whatsapp", delivered: false, error: result.error };
+  }
+  return { code, channel: "whatsapp", delivered: true };
 }
 
 router.post("/send", async (req: Request, res: Response) => {
@@ -115,12 +142,22 @@ router.post("/send", async (req: Request, res: Response) => {
     return;
   }
 
-  const { channel } = await saveAndSendOtp(normalized, email, reason ?? "Verification", userName, ip ?? req.ip, location);
+  const result = await saveAndSendOtp(normalized, email, reason ?? "Verification", userName, ip ?? req.ip?.toString(), location);
+
+  if (!result.delivered) {
+    res.status(503).json({
+      error: result.channel === "email"
+        ? `We couldn't deliver the verification code to your email (${email ?? "unknown"}). Please check your email address or contact support at support@zenti.run.place.`
+        : "We couldn't deliver the verification code via WhatsApp. Please try again or contact support.",
+      detail: result.error,
+    });
+    return;
+  }
 
   res.json({
     ok: true,
-    channel,
-    message: channel === "email"
+    channel: result.channel,
+    message: result.channel === "email"
       ? "Verification code sent to your email"
       : "Verification code sent via WhatsApp",
   });
@@ -185,12 +222,20 @@ router.post("/send-withdrawal", requireAuth, async (req: AuthRequest, res: Respo
     return;
   }
 
-  const { channel } = await saveAndSendOtp(user.phone, user.email, "Funds Withdrawal", user.fullName, req.ip ?? "unknown");
+  const result = await saveAndSendOtp(user.phone, user.email, "Funds Withdrawal", user.fullName, req.ip?.toString() ?? "unknown");
+
+  if (!result.delivered) {
+    res.status(503).json({
+      error: "We couldn't deliver the verification code. Please try again or contact support@zenti.run.place.",
+      detail: result.error,
+    });
+    return;
+  }
 
   res.json({
     ok: true,
-    channel,
-    message: channel === "email"
+    channel: result.channel,
+    message: result.channel === "email"
       ? "Verification code sent to your email"
       : "Verification code sent to your WhatsApp",
   });

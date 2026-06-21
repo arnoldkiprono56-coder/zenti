@@ -93,7 +93,7 @@ async function send(cfg: SmtpConfig, to: string, subject: string, html: string, 
 
 function layout(cfg: SmtpConfig, body: string): string {
   // Fix: use cfg.fromEmail and cfg.fromName from settings instead of hardcoded values
-  const supportEmail = cfg.fromEmail || "support@zenti.app";
+  const supportEmail = cfg.fromEmail || "support@zenti.run.place";
   const fromName = cfg.fromName || "Zenti";
   return `<!DOCTYPE html>
 <html lang="en">
@@ -132,7 +132,7 @@ function table(rows: string): string {
   return `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:20px 0;">${rows}</table>`;
 }
 
-function cta(text: string, url = "https://zenti-investiment.vercel.app"): string {
+function cta(text: string, url = "https://zenti.run.place"): string {
   return `<table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 8px;"><tr><td align="center"><a href="${url}" style="display:inline-block;background:linear-gradient(135deg,#14532d,#16a34a);color:#ffffff;text-decoration:none;padding:14px 36px;border-radius:8px;font-weight:700;font-size:15px;">${text}</a></td></tr></table>`;
 }
 
@@ -510,6 +510,48 @@ export async function sendWithdrawalApprovedEmail(
     ${cta("🏦 View My Wallet")}${hr()}${note("Thank you for using Zenti. We appreciate your trust.")}`;
   return send(cfg, user.email, `✅ Withdrawal Approved — ${fmt(data.amount)} being processed`, layout(cfg, body),
     `Your withdrawal of ${fmt(data.amount)} via ${methodLabel} has been approved and is being processed.`);
+}
+
+/* ─── Account Banned (Auto-ban notification) ─────────────────────────────── */
+
+export async function sendAccountBannedEmail(
+  user: { email: string; name: string },
+  data: { reason: string; supportEmail: string; siteUrl: string },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const body = `
+    ${hi(user.name)}
+    ${hero("🚫", "Your Account Has Been Suspended", "#fef2f2", "#991b1b")}
+    ${alert(`<strong>Your Zenti account has been suspended</strong> due to a violation of our Terms of Service.<br/><br/>
+      <strong>Reason:</strong> ${data.reason}`)}
+    ${para("Our automated fraud detection system identified activity that violates our platform rules. Violations include but are not limited to:")}
+    <ul style="margin:0 0 16px;padding-left:20px;color:#374151;font-size:14px;line-height:1.8;">
+      <li>Creating multiple accounts with the same phone number</li>
+      <li>Registering multiple accounts from the same device or network</li>
+      <li>Using automated tools or bots to create accounts</li>
+      <li>Providing false or misleading identity information</li>
+    </ul>
+    <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:14px;padding:20px 24px;margin:20px 0;">
+      <h3 style="margin:0 0 12px;color:#9a3412;font-size:15px;font-weight:800;">📬 How to Appeal This Decision</h3>
+      <p style="margin:0 0 10px;color:#7c2d12;font-size:14px;line-height:1.7;">If you believe this suspension was made in error, you may submit an appeal by emailing our support team. Include:</p>
+      <ul style="margin:0;padding-left:18px;color:#7c2d12;font-size:13px;line-height:1.8;">
+        <li>Your full name and registered email address</li>
+        <li>Your Kenyan phone number (07XX or 01XX format)</li>
+        <li>A brief explanation of why you believe the ban was in error</li>
+        <li>Any supporting information (e.g., proof of identity)</li>
+      </ul>
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 0;"><tr><td align="center">
+        <a href="mailto:${data.supportEmail}?subject=Account%20Suspension%20Appeal&body=My%20name%3A%20${encodeURIComponent(user.name)}%0AMy%20email%3A%20${encodeURIComponent(user.email)}%0A%0AReason%20for%20appeal%3A%20" 
+           style="display:inline-block;background:#dc2626;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;">
+          📧 Send Appeal to ${data.supportEmail}
+        </a>
+      </td></tr></table>
+    </div>
+    ${para("Appeals are reviewed within 24–48 business hours. If your appeal is successful, your account will be reinstated.")}
+    ${hr()}${note(`This is an automated message from the Zenti fraud detection system. Account ID: ${user.email}. Zenti — zenti.run.place`)}`;
+  return send(cfg, user.email, `🚫 Zenti Account Suspended — Action Required`, layout(cfg, body),
+    `Your Zenti account has been suspended.\nReason: ${data.reason}\n\nTo appeal, email: ${data.supportEmail}`);
 }
 
 /* ─── Withdrawal Rejected ────────────────────────────────────────────────── */

@@ -1,3 +1,4 @@
-- [Zenti project architecture](zenti-arch.md) — full stack: Express v5 API (port 8080) + React Vite frontend (port 5000), Drizzle ORM + Neon PostgreSQL
+- [Zenti project architecture](zenti-arch.md) — full stack: Express v5 API (port 8080) + React Vite frontend (port 5000), Drizzle ORM + Neon PostgreSQL; domain: zenti.run.place, support: support@zenti.run.place
+- [Zenti auto-ban system](zenti-auto-ban.md) — fraud detection: duplicate phone, IP flood (>2 in 1hr), device fingerprint flood (>2 in 24h); ban fires 2 min after registration via setTimeout
 - [Zenti claim system](zenti-claim-system.md) — claimable_earnings table: users must claim daily earnings by 11:59 PM EAT or they expire; internship & premium plans both use this
 - [Zenti withdrawal rule](zenti-withdrawal-rule.md) — withdrawals only allowed on the last calendar day of an active investment; enforced in transactions.ts via isLastDayKE()

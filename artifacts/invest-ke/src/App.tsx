@@ -18,6 +18,7 @@ import Support from "@/pages/support";
 import Terms from "@/pages/legal/terms";
 import Privacy from "@/pages/legal/privacy";
 import Referrals from "@/pages/referrals";
+import EarningsHistory from "@/pages/earnings/history";
 
 // Admin pages
 import AdminReferrals from "@/pages/admin/referrals";
@@ -60,6 +61,7 @@ function Router() {
       <Route path="/transactions" component={Transactions} />
       <Route path="/withdraw" component={Withdraw} />
       <Route path="/referrals" component={Referrals} />
+      <Route path="/earnings/history" component={EarningsHistory} />
 
       {/* Admin — admin role required (enforced in Layout) */}
       <Route path="/admin" component={AdminDashboard} />

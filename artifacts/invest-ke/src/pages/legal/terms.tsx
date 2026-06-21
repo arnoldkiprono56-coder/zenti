@@ -12,11 +12,12 @@ export default function Terms() {
         <div className="space-y-7 text-sm leading-7 text-muted-foreground">
 
           <Section title="1. Acceptance of Terms">
-            <p>By creating an account on Zenti ("Platform", "we", "us") and using our services, you ("User") agree to be bound by these Terms of Service. If you do not agree, do not use the Platform. We reserve the right to update these Terms; continued use constitutes acceptance of any changes.</p>
+            <p>By creating an account on Zenti ("Platform", "we", "us") at <strong>zenti.run.place</strong> and using our services, you ("User") agree to be bound by these Terms of Service. If you do not agree, do not use the Platform. We reserve the right to update these Terms; continued use constitutes acceptance of any changes.</p>
           </Section>
 
           <Section title="2. Eligibility">
             <p>You must be at least 18 years of age and a resident of Kenya. By registering, you confirm all information provided is accurate and complete. Zenti reserves the right to suspend accounts that violate eligibility requirements.</p>
+            <p className="mt-2 font-medium text-foreground">One account per person: You may only operate a single Zenti account. Creation of multiple accounts for any reason — including to access the Internship Package more than once or to abuse referral bonuses — is a material violation of these Terms and will result in immediate account suspension.</p>
           </Section>
 
           <Section title="3. Investment Plans">
@@ -70,20 +71,51 @@ export default function Terms() {
             <p>You may not: use bots or scripts to interact with the platform; create multiple accounts to abuse the Internship Package or referral bonuses; attempt to hack or manipulate platform features; use Zenti for money laundering or any illegal activity; or provide false information. Violations result in immediate account suspension, forfeiture of balances, and referral to Kenyan authorities.</p>
           </Section>
 
-          <Section title="10. Risk Disclosure">
+          <Section title="10. Fraud Detection & Automatic Account Suspension">
+            <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-3">
+              <p className="text-red-800 font-bold mb-2">🚫 Our automated system detects and bans fraudulent accounts</p>
+              <p className="text-red-700">Zenti operates a real-time fraud detection system that monitors all registrations and activities. Accounts may be <strong>automatically suspended without prior notice</strong> if the system detects any of the following:</p>
+            </div>
+            <ul className="list-disc pl-5 space-y-2 mt-2">
+              <li>
+                <strong>Duplicate Phone Number:</strong> If your phone number is already associated with another Zenti account — whether that account was created by you or someone else — the newer account will be automatically suspended. Only one account is permitted per phone number.
+              </li>
+              <li>
+                <strong>IP Address Pattern:</strong> If more than two accounts are registered from the same public IP address within a 60-minute window, all accounts from that IP may be suspended. This applies to shared networks (offices, internet cafés, etc.). We track IP addresses of all registrations.
+              </li>
+              <li>
+                <strong>Device Fingerprint:</strong> We collect and analyse unique device identifiers including your browser type, operating system, device model, screen resolution, installed fonts, and other technical characteristics. If more than two accounts are created from the same device within a 24-hour period, all accounts may be suspended.
+              </li>
+              <li>
+                <strong>Behavioral Patterns:</strong> Unusual registration patterns, abnormal referral activity, atypical login behaviour, or other signals consistent with automated account creation may trigger automatic suspension.
+              </li>
+              <li>
+                <strong>SIM-Card or Phone Hardware Identifiers:</strong> Where technically available, we may collect device hardware identifiers to confirm device uniqueness.
+              </li>
+            </ul>
+            <p className="mt-3">
+              <strong>Important:</strong> These checks are performed automatically by our system. Suspension happens silently — you will not be denied at the point of registration, but your account may be suspended shortly after. You will receive a suspension email with instructions.
+            </p>
+            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-blue-800 font-medium">📬 How to Appeal a Suspension</p>
+              <p className="text-blue-700 mt-1">If you believe your account was suspended in error, you may submit an appeal to <a href="mailto:support@zenti.run.place" className="underline font-medium">support@zenti.run.place</a>. Include your full name, registered email, phone number, and a brief explanation. Appeals are reviewed within 24–48 business hours. Accounts confirmed to be fraudulent will not be reinstated.</p>
+            </div>
+          </Section>
+
+          <Section title="11. Risk Disclosure">
             <p>Investing carries risk. Zenti aims to deliver consistent returns, but past performance does not guarantee future results. Only invest money you can afford to lose. Zenti is not a licensed bank or regulated financial institution and is not covered by the Kenya Deposit Protection Fund.</p>
           </Section>
 
-          <Section title="11. Limitation of Liability">
+          <Section title="12. Limitation of Liability">
             <p>To the maximum extent permitted by law, Zenti and its directors, employees, and agents are not liable for any indirect, incidental, or consequential damages arising from your use of the platform, including earnings lost due to failure to claim on time, network outages, or technical failures.</p>
           </Section>
 
-          <Section title="12. Governing Law">
+          <Section title="13. Governing Law">
             <p>These Terms are governed by the laws of Kenya. Disputes are subject to the exclusive jurisdiction of the courts of Nairobi, Kenya.</p>
           </Section>
 
-          <Section title="13. Contact">
-            <p>Questions about these Terms? Contact our support team via your account dashboard or email <a href="mailto:support@zenti.app" className="text-primary underline">support@zenti.app</a>.</p>
+          <Section title="14. Contact">
+            <p>Questions about these Terms? Contact our support team via your account dashboard or email <a href="mailto:support@zenti.run.place" className="text-primary underline">support@zenti.run.place</a>.</p>
           </Section>
         </div>
       </div>
