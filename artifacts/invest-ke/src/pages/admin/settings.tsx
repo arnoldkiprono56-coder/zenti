@@ -73,7 +73,7 @@ export default function AdminSettings() {
       })
       .catch(() => {})
       .finally(() => setConfigLoading(false));
-  }, [token]);
+  }, []);
 
   const updateMutation = useUpdateSettings({
     mutation: {

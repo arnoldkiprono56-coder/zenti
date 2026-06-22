@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { apiUrl } from "@/lib/api-url";
 import { useGetDashboardSummary, useGetMyInvestments, useGetMyTransactions, useActivateInternship, getGetDashboardSummaryQueryKey, getGetMyInvestmentsQueryKey } from "@workspace/api-client-react";
 import { formatKES, formatDate } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
@@ -43,8 +44,7 @@ function useClaimableEarnings(token: string | null) {
     if (!token) return;
     setLoading(true);
     try {
-      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${base}/api/earnings/claimable`, {
+      const res = await fetch(apiUrl("/api/earnings/claimable"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -109,8 +109,7 @@ export default function Dashboard() {
     if (!token || claiming) return;
     setClaiming(true);
     try {
-      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${base}/api/earnings/claim`, {
+      const res = await fetch(apiUrl("/api/earnings/claim"), {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });

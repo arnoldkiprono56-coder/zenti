@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { MessageSquareMore, RefreshCw, Send, ShieldCheck, Wifi, WifiOff } from "lucide-react";
+import { apiUrl } from "@/lib/api-url";
 
 function authHeaders() {
   const token = localStorage.getItem("investke_token");
@@ -19,13 +20,13 @@ function authHeaders() {
 }
 
 async function fetchStatus(): Promise<{ connected: boolean; user?: string; phone?: string; error?: string }> {
-  const res = await fetch("/api/admin/whatsapp/status", { headers: authHeaders() });
+  const res = await fetch(apiUrl("/api/admin/whatsapp/status"), { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 async function sendTestOtp(body: { phone: string; reason: string }) {
-  const res = await fetch("/api/admin/whatsapp/test-otp", {
+  const res = await fetch(apiUrl("/api/admin/whatsapp/test-otp"), {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(body),
@@ -36,7 +37,7 @@ async function sendTestOtp(body: { phone: string; reason: string }) {
 }
 
 async function sendTestMessage(body: { phone: string; text: string }) {
-  const res = await fetch("/api/admin/whatsapp/test-message", {
+  const res = await fetch(apiUrl("/api/admin/whatsapp/test-message"), {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(body),

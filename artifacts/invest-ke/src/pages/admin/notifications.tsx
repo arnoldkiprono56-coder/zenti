@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiUrl } from "@/lib/api-url";
 import { useGetSettings, useUpdateSettings, getGetSettingsQueryKey } from "@workspace/api-client-react";
 import {
   MessageSquareMore, RefreshCw, Send, ShieldCheck,
@@ -56,7 +57,7 @@ export default function AdminNotifications() {
   const { data: waStatus, isLoading: waLoading, refetch: refetchWa, isFetching: waFetching } = useQuery({
     queryKey: ["admin-whatsapp-status"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/whatsapp/status", { headers: authHeaders() });
+      const res = await fetch(apiUrl("/api/admin/whatsapp/status"), { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json() as Promise<{ connected: boolean; phone?: string; error?: string }>;
     },
@@ -104,7 +105,7 @@ export default function AdminNotifications() {
 
   const smtpTestMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/admin/email/test-smtp", {
+      const res = await fetch(apiUrl("/api/admin/email/test-smtp"), {
         method: "POST",
         headers: authHeaders(),
       });
@@ -124,7 +125,7 @@ export default function AdminNotifications() {
 
   const emailOtpMutation = useMutation({
     mutationFn: async (email: string) => {
-      const res = await fetch("/api/admin/email/test-otp", {
+      const res = await fetch(apiUrl("/api/admin/email/test-otp"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ email, reason: "Admin Test" }),
@@ -145,7 +146,7 @@ export default function AdminNotifications() {
 
   const waOtpMutation = useMutation({
     mutationFn: async (phone: string) => {
-      const res = await fetch("/api/admin/whatsapp/test-otp", {
+      const res = await fetch(apiUrl("/api/admin/whatsapp/test-otp"), {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ phone, reason: "Admin Test" }),

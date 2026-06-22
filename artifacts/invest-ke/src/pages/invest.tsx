@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useGetPlans, useInitiateDeposit, useCreateInvestment, getGetDashboardSummaryQueryKey, getGetMyInvestmentsQueryKey } from "@workspace/api-client-react";
+import { apiUrl } from "@/lib/api-url";
 import { formatKES } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
@@ -54,8 +55,7 @@ export default function Invest() {
     const poll = async () => {
       try {
         const token = localStorage.getItem("investke_token");
-        const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-        const res = await fetch(`${base}/api/transactions/${pendingTxnId}/status`, {
+        const res = await fetch(apiUrl(`/api/transactions/${pendingTxnId}/status`), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) return;

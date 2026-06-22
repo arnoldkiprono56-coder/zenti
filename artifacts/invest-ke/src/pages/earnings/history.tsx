@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { apiUrl } from "@/lib/api-url";
 import { formatKES } from "@/lib/format";
 import { CheckCircle2, Clock, XCircle, TrendingUp, Calendar, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
@@ -28,7 +29,8 @@ function StatusBadge({ claimed, expired }: { claimed: boolean; expired: boolean 
 }
 
 export default function EarningsHistory() {
-  const { token } = useAuth();
+  useAuth();
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("investke_token") : null;
   const [records, setRecords] = useState<EarningRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,8 +40,7 @@ export default function EarningsHistory() {
     setLoading(true);
     setError(null);
     try {
-      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${base}/api/earnings/history`, {
+      const res = await fetch(apiUrl("/api/earnings/history"), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Failed to load history");
