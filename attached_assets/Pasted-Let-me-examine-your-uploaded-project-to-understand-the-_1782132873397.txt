@@ -1,0 +1,80 @@
+Let me examine your uploaded project to understand the structure and find the root cause of the Vercel deployment issue.
+
+I can see the issue. Your project is a pnpm workspace monorepo with two parts:
+- `artifacts/api-server/` — Express backend
+- `artifacts/invest-ke/` — React frontend
+
+The Vercel error happens because the build is only running the API server build (`build:vercel` inside `artifacts/api-server/`), not the full workspace build that also builds the frontend and copies it to `api/public/`.
+
+Here's what's failing and how to fix it:
+
+---
+
+Root Cause
+
+Your root `package.json` has the correct build command:
+```json
+"build:vercel": "pnpm --filter @workspace/api-server run build:vercel && pnpm --filter @workspace/invest-ke run build && node scripts/build-vercel.mjs"
+```
+
+This is supposed to:
+1. Build the API → `api/handler.mjs`
+2. Build the frontend → `dist/`
+3. Copy `dist/` → `api/public/` (via `scripts/build-vercel.mjs`)
+
+But Vercel is building from `artifacts/api-server/` as the root, so steps 2 and 3 never run. No `api/public/` folder is created → Vercel complains about missing output directory.
+
+---
+
+Fix: Configure Vercel Project Root
+
+In your Vercel project settings, change the Root Directory from `artifacts/api-server` to `.` (the repo root / empty). This ensures the workspace-level `build:vercel` runs.
+
+Also update your `vercel.json` at the repo root:
+
+```json
+{
+  "version": 2,
+  "framework": null,
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm run build:vercel",
+  "outputDirectory": "api/public",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.mjs" },
+    { "source": "/(.*)", "destination": "/api/index.mjs" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/process-returns",
+      "schedule": "0 21 * * *"
+    }
+  ]
+}
+```
+
+Key changes:
+- `outputDirectory": "api/public"` — tells Vercel where your static frontend files are
+- `rewrites` instead of `routes` — `routes` is the legacy v1 format; `rewrites` is correct for v2
+- Remove `"routes"` array — it conflicts with the new format
+
+---
+
+Alternative: Deploy API Only (No Frontend)
+
+If you only want the Express API on Vercel (and host the frontend elsewhere), create a `vercel.json` inside `artifacts/api-server/` with:
+
+```json
+{
+  "version": 2,
+  "framework": null,
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm run build:vercel",
+  "outputDirectory": "api"
+}
+```
+
+And keep the Vercel Root Directory set to `artifacts/api-server`.
+
+---
+
+Which setup do you prefer — fullstack (frontend + API on Vercel) or API-only? I can give you the exact files to change.
