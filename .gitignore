@@ -3,8 +3,7 @@
 # compiled output
 dist
 tmp
-api/handler.mjs
-api/handler.mjs.map
+api/index.mjs.map
 api/public
 netlify/functions/api.mjs
 netlify/functions/api.mjs.map

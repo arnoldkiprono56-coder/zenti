@@ -10,8 +10,7 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(artifactDir, "../..");
 
 async function buildVercel() {
-  const outfile = path.join(projectRoot, "api/handler.mjs");
-  await rm(outfile, { force: true });
+  const outfile = path.join(projectRoot, "api/index.mjs");
   await rm(`${outfile}.map`, { force: true });
 
   await esbuild({
