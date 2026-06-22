@@ -1,12 +1,10 @@
-import { cp, rm, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { rm } from "node:fs/promises";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const src = path.join(root, "dist");
-const dest = path.join(root, "api/public");
 
-await rm(dest, { recursive: true, force: true });
-await mkdir(dest, { recursive: true });
-await cp(src, dest, { recursive: true });
-console.log(`Frontend copied to api/public`);
+// Clean up old api/public if it exists from a previous build
+await rm(path.join(root, "api/public"), { recursive: true, force: true });
+
+console.log("Vercel build complete. Frontend is in dist/, API function is in api/");
