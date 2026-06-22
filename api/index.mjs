@@ -83963,6 +83963,13 @@ app.use("/api", globalLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api/otp", otpLimiter);
 app.use(maintenanceMiddleware());
+app.get("/api/diag", (_req, res) => {
+  const vars = ["NEON_DATABASE_URL", "DATABASE_URL", "SESSION_SECRET", "SMTP_USER", "SMTP_PASS", "APP_URL", "FRONTEND_URL", "NODE_ENV"];
+  res.json({
+    ok: true,
+    env: Object.fromEntries(vars.map((k) => [k, !!process.env[k]]))
+  });
+});
 app.use("/api", routes_default);
 var publicDir = path.join(__dirname2, "public");
 if (fs.existsSync(publicDir)) {

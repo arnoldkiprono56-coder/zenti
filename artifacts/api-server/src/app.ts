@@ -92,6 +92,15 @@ app.use("/api/otp", otpLimiter);
 
 app.use(maintenanceMiddleware());
 
+// Diagnostic endpoint — shows which env vars are present (never their values)
+app.get("/api/diag", (_req: Request, res: Response) => {
+  const vars = ["NEON_DATABASE_URL", "DATABASE_URL", "SESSION_SECRET", "SMTP_USER", "SMTP_PASS", "APP_URL", "FRONTEND_URL", "NODE_ENV"];
+  res.json({
+    ok: true,
+    env: Object.fromEntries(vars.map((k) => [k, !!process.env[k]])),
+  });
+});
+
 app.use("/api", router);
 
 const publicDir = path.join(__dirname, "public");
