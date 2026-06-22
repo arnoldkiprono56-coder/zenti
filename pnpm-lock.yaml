@@ -196,6 +196,9 @@ importers:
       jsonwebtoken:
         specifier: ^9.0.3
         version: 9.0.3
+      node-cron:
+        specifier: ^4.4.1
+        version: 4.4.1
       nodemailer:
         specifier: ^9.0.1
         version: 9.0.1
@@ -2607,6 +2610,10 @@ packages:
     peerDependencies:
       react: ^16.8 || ^17 || ^18 || ^19 || ^19.0.0-rc
       react-dom: ^16.8 || ^17 || ^18 || ^19 || ^19.0.0-rc
+
+  node-cron@4.4.1:
+    resolution: {integrity: sha512-1e4Gku1qeKx1ywNnMoA0o5hiZ8iA4klH84TIszTHZAME68xVIjLkiBo5KrtowbcOJn8MQqJG/yWHjC/dFdMWyQ==}
+    engines: {node: '>=20'}
 
   node-releases@2.0.38:
     resolution: {integrity: sha512-3qT/88Y3FbH/Kx4szpQQ4HzUbVrHPKTLVpVocKiLfoYvw9XSGOX2FmD2d6DrXbVYyAQTF2HeF6My8jmzx7/CRw==}
@@ -5246,6 +5253,8 @@ snapshots:
     dependencies:
       react: 19.1.0
       react-dom: 19.1.0(react@19.1.0)
+
+  node-cron@4.4.1: {}
 
   node-releases@2.0.38: {}
 
