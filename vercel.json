@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/api-server run build:vercel && pnpm --filter @workspace/invest-ke run build",
   "outputDirectory": "dist",
