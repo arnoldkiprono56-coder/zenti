@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -101,5 +101,17 @@ if (fs.existsSync(publicDir)) {
     res.sendFile(path.join(publicDir, "index.html"));
   });
 }
+
+// 404 handler for unmatched API routes
+app.use("/api", (_req: Request, res: Response) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// Global JSON error handler — must be last, prevents HTML error pages
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, "Unhandled error");
+  const status = (err as any).status ?? (err as any).statusCode ?? 500;
+  res.status(status).json({ error: err.message || "Internal server error" });
+});
 
 export default app;
