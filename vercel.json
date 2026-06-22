@@ -6,5 +6,11 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.mjs" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/process-returns",
+      "schedule": "0 21 * * *"
+    }
   ]
 }

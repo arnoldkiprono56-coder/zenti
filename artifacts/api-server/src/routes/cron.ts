@@ -39,7 +39,7 @@ function expiryTodayKE(): Date {
  *
  * Protected by CRON_SECRET env var (Vercel passes as Authorization: Bearer <CRON_SECRET>).
  */
-router.post("/process-returns", async (req: Request, res: Response) => {
+router.all("/process-returns", async (req: Request, res: Response) => {
   const cronSecret = process.env["CRON_SECRET"];
 
   if (cronSecret) {
