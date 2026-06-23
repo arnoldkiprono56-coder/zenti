@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "@workspace/db";
-import { transactionsTable, usersTable, activityLogsTable, fraudFlagsTable, referralsTable, platformSettingsTable, investmentsTable } from "@workspace/db";
+import { transactionsTable, usersTable, activityLogsTable, fraudFlagsTable, referralsTable, platformSettingsTable, investmentsTable, plansTable } from "@workspace/db";
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
 import { initiateSTKPush } from "../lib/payhero";
@@ -250,10 +250,16 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
-  // ── WITHDRAWAL LOCK: Only allowed on the last day of an active investment ──
+  // ── WITHDRAWAL LOCK ────────────────────────────────────────────────────────
+  // Active investments joined with their plan's isInternship flag
   const activeInvestments = await db
-    .select()
+    .select({
+      id: investmentsTable.id,
+      completesAt: investmentsTable.completesAt,
+      isInternship: plansTable.isInternship,
+    })
     .from(investmentsTable)
+    .leftJoin(plansTable, eq(investmentsTable.planId, plansTable.id))
     .where(and(eq(investmentsTable.userId, req.userId!), eq(investmentsTable.status, "active")));
 
   if (activeInvestments.length === 0) {
@@ -263,26 +269,72 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
     return;
   }
 
-  // Find the investment with the soonest completion date
-  const soonestInvestment = activeInvestments.reduce((min, i) => {
-    if (!i.completesAt) return min;
-    return !min || i.completesAt < min.completesAt! ? i : min;
-  }, null as typeof activeInvestments[0] | null);
+  const balance = parseFloat(user.balance ?? "0");
+  const lockedBalance = parseFloat(user.lockedBalance ?? "0");
 
-  if (!soonestInvestment || !isLastDayKE(soonestInvestment.completesAt)) {
-    const completionDate = soonestInvestment?.completesAt
-      ? soonestInvestment.completesAt.toLocaleDateString("en-KE", { timeZone: "Africa/Nairobi", weekday: "long", day: "numeric", month: "long", year: "numeric" })
-      : "the last day of your investment";
-    res.status(400).json({
-      error: `Withdrawals are only available on the last day of your active investment. Your withdrawal window opens on: ${completionDate}.`,
-      withdrawalUnlocksAt: soonestInvestment?.completesAt?.toISOString() ?? null,
-    });
-    return;
+  const realInvestments = activeInvestments.filter(i => !i.isInternship);
+
+  let withdrawable: number;
+  let isLastDayUnlock = false;
+
+  if (lockedBalance > 0) {
+    // User has locked internship earnings — must have a real paid investment to withdraw
+    if (realInvestments.length === 0) {
+      res.status(400).json({
+        error: `Your KES ${lockedBalance.toFixed(0)} internship earnings are locked. Purchase a Premium Plan with a real M-Pesa deposit to unlock your earnings and access withdrawals.`,
+      });
+      return;
+    }
+
+    // Last day of any real investment → full balance unlocks
+    const lastDayReal = realInvestments.find(i => isLastDayKE(i.completesAt));
+    if (lastDayReal) {
+      withdrawable = balance;
+      isLastDayUnlock = true;
+    } else {
+      // Mid-plan: only the amount above the locked portion is withdrawable
+      withdrawable = balance - lockedBalance;
+      if (withdrawable <= 0) {
+        const soonest = realInvestments.reduce((min, i) => {
+          if (!i.completesAt) return min;
+          return !min || i.completesAt < min.completesAt! ? i : min;
+        }, null as typeof realInvestments[0] | null);
+        const completionDate = soonest?.completesAt
+          ? soonest.completesAt.toLocaleDateString("en-KE", { timeZone: "Africa/Nairobi", weekday: "long", day: "numeric", month: "long", year: "numeric" })
+          : "the last day of your investment";
+        res.status(400).json({
+          error: `Your balance (KES ${balance.toLocaleString("en-KE", { minimumFractionDigits: 2 })}) does not exceed the locked KES ${lockedBalance.toFixed(0)}. Keep earning until your balance exceeds KES ${lockedBalance.toFixed(0)}, or wait until ${completionDate} to withdraw everything including the locked amount.`,
+          withdrawalUnlocksAt: soonest?.completesAt?.toISOString() ?? null,
+        });
+        return;
+      }
+    }
+  } else {
+    // No internship lock: original last-day-only rule for any active investment
+    const soonestInvestment = activeInvestments.reduce((min, i) => {
+      if (!i.completesAt) return min;
+      return !min || i.completesAt < min.completesAt! ? i : min;
+    }, null as typeof activeInvestments[0] | null);
+
+    if (!soonestInvestment || !isLastDayKE(soonestInvestment.completesAt)) {
+      const completionDate = soonestInvestment?.completesAt
+        ? soonestInvestment.completesAt.toLocaleDateString("en-KE", { timeZone: "Africa/Nairobi", weekday: "long", day: "numeric", month: "long", year: "numeric" })
+        : "the last day of your investment";
+      res.status(400).json({
+        error: `Withdrawals are only available on the last day of your active investment. Your withdrawal window opens on: ${completionDate}.`,
+        withdrawalUnlocksAt: soonestInvestment?.completesAt?.toISOString() ?? null,
+      });
+      return;
+    }
+    withdrawable = balance;
   }
 
-  const balance = parseFloat(user.balance ?? "0");
-  if (grossAmount > balance) {
-    res.status(400).json({ error: "Insufficient balance" });
+  if (grossAmount > withdrawable) {
+    res.status(400).json({
+      error: lockedBalance > 0 && !isLastDayUnlock
+        ? `You can only withdraw up to KES ${withdrawable.toLocaleString("en-KE", { minimumFractionDigits: 2 })} (balance minus the locked KES ${lockedBalance.toFixed(0)}).`
+        : "Insufficient balance",
+    });
     return;
   }
 
@@ -363,7 +415,10 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
   }
 
   await db.update(usersTable)
-    .set({ balance: String(balance - grossAmount) })
+    .set({
+      balance: String(balance - grossAmount),
+      ...(isLastDayUnlock ? { lockedBalance: "0" } : {}),
+    })
     .where(eq(usersTable.id, req.userId!));
 
   await db.insert(activityLogsTable).values({

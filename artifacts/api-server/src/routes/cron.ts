@@ -112,12 +112,20 @@ router.all("/process-returns", async (req: Request, res: Response) => {
         .where(eq(investmentsTable.id, inv.id));
 
       if (isComplete) {
+        // Determine if this is an internship investment
+        const [completedPlan] = await db
+          .select({ isInternship: plansTable.isInternship, name: plansTable.name })
+          .from(plansTable).where(eq(plansTable.id, inv.planId)).limit(1);
+        const isInternshipPlan = completedPlan?.isInternship ?? false;
+
         // Final day: auto-credit earnings and mark complete
         await db
           .update(usersTable)
           .set({
             balance: sql`${usersTable.balance} + ${dailyEarning}`,
             totalEarned: sql`${usersTable.totalEarned} + ${dailyEarning}`,
+            // Internship earnings are locked until last day of a real paid investment
+            ...(isInternshipPlan ? { lockedBalance: sql`${usersTable.lockedBalance} + ${dailyEarning}` } : {}),
             updatedAt: now,
           })
           .where(eq(usersTable.id, inv.userId));
@@ -160,12 +168,22 @@ router.all("/process-returns", async (req: Request, res: Response) => {
             if (!usr) return;
             const totalFmt = parseFloat(inv.expectedTotal ?? "0").toLocaleString("en-KE", { minimumFractionDigits: 2 });
             const newBal = (parseFloat(usr.balance ?? "0")).toLocaleString("en-KE", { minimumFractionDigits: 2 });
-            await sendMessage(usr.phone,
-              `🏆 *Investment Completed — Zenti*\n\nCongratulations ${usr.fullName}!\n\nYour plan has matured and all earnings credited.\n\n` +
-              `💵 *Total Earned:* KES ${totalFmt}\n🏦 *New Balance:* KES ${newBal}\n\n` +
-              `💡 *Today is your withdrawal day!* You can now withdraw your earnings.\n\n` +
-              `Ready to grow more? Start a new plan today! 🚀`
-            );
+            if (isInternshipPlan) {
+              await sendMessage(usr.phone,
+                `🎓 *Internship Completed — Zenti*\n\nCongratulations ${usr.fullName}!\n\nYour 2-Day Internship Package has matured!\n\n` +
+                `💵 *Total Earned:* KES ${totalFmt}\n🏦 *Wallet Balance:* KES ${newBal}\n\n` +
+                `🔒 *Your KES 200 is locked in your wallet.*\n\n` +
+                `To unlock and withdraw your earnings, you must purchase a Premium Plan with a real M-Pesa deposit.\n\n` +
+                `👉 Log in now and invest to start growing your wealth! 🚀`
+              );
+            } else {
+              await sendMessage(usr.phone,
+                `🏆 *Investment Completed — Zenti*\n\nCongratulations ${usr.fullName}!\n\nYour plan has matured and all earnings credited.\n\n` +
+                `💵 *Total Earned:* KES ${totalFmt}\n🏦 *New Balance:* KES ${newBal}\n\n` +
+                `💡 *Today is your withdrawal day!* You can now withdraw your earnings.\n\n` +
+                `Ready to grow more? Start a new plan today! 🚀`
+              );
+            }
           } catch { /* silent */ }
         })();
 
@@ -177,16 +195,13 @@ router.all("/process-returns", async (req: Request, res: Response) => {
               .select({ email: usersTable.email, fullName: usersTable.fullName, balance: usersTable.balance })
               .from(usersTable).where(eq(usersTable.id, inv.userId)).limit(1);
             if (!usr?.email) return;
-            // Determine if internship by querying the plan
-            const [plan] = await db.select({ isInternship: plansTable.isInternship, name: plansTable.name })
-              .from(plansTable).where(eq(plansTable.id, inv.planId)).limit(1);
             await sendInvestmentCompletedEmail(
               { email: usr.email, name: usr.fullName },
               {
                 totalEarned: parseFloat(inv.expectedTotal ?? "0"),
                 newBalance: parseFloat(usr.balance ?? "0"),
-                isInternship: plan?.isInternship ?? false,
-                planName: plan?.name,
+                isInternship: isInternshipPlan,
+                planName: completedPlan?.name,
               },
             );
           } catch { /* silent */ }

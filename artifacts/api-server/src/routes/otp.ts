@@ -74,7 +74,10 @@ async function saveAndSendOtp(
 
   await db.insert(otpsTable).values({ phone, code, reason, expiresAt });
 
-  const { method, settings } = await getVerificationMethod();
+  const isPasswordReset = /password|reset/i.test(reason);
+  const { method, settings } = isPasswordReset
+    ? { method: "email" as const, settings: (await db.select().from(platformSettingsTable).limit(1) as any[])[0] }
+    : await getVerificationMethod();
 
   if (method === "email") {
     if (!email) {

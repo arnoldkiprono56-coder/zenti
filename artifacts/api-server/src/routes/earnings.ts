@@ -1,6 +1,6 @@
 import { Router, Response } from "express";
 import { db } from "@workspace/db";
-import { claimableEarningsTable, usersTable, activityLogsTable, investmentsTable } from "@workspace/db";
+import { claimableEarningsTable, usersTable, activityLogsTable, investmentsTable, plansTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
 
@@ -74,6 +74,28 @@ router.post("/claim", requireAuth, async (req: AuthRequest, res: Response) => {
 
   const totalAmount = unclaimed.reduce((s, e) => s + parseFloat(e.amount), 0);
 
+  // Determine how much of the claimed amount comes from internship investments (must stay locked)
+  const investmentIds = [...new Set(unclaimed.map(e => e.investmentId).filter((id): id is number => id != null))];
+  let internshipLockedAmount = 0;
+  if (investmentIds.length > 0) {
+    const investments = await db
+      .select({ id: investmentsTable.id, planId: investmentsTable.planId })
+      .from(investmentsTable)
+      .where(sql`${investmentsTable.id} = ANY(ARRAY[${sql.raw(investmentIds.join(","))}]::int[])`);
+    const planIds = [...new Set(investments.map(i => i.planId))];
+    if (planIds.length > 0) {
+      const plans = await db
+        .select({ id: plansTable.id, isInternship: plansTable.isInternship })
+        .from(plansTable)
+        .where(sql`${plansTable.id} = ANY(ARRAY[${sql.raw(planIds.join(","))}]::int[])`);
+      const internshipPlanIds = new Set(plans.filter(p => p.isInternship).map(p => p.id));
+      const internshipInvIds = new Set(investments.filter(i => internshipPlanIds.has(i.planId)).map(i => i.id));
+      internshipLockedAmount = unclaimed
+        .filter(e => e.investmentId != null && internshipInvIds.has(e.investmentId))
+        .reduce((s, e) => s + parseFloat(e.amount), 0);
+    }
+  }
+
   // Mark all as claimed
   for (const earning of unclaimed) {
     await db
@@ -82,12 +104,13 @@ router.post("/claim", requireAuth, async (req: AuthRequest, res: Response) => {
       .where(eq(claimableEarningsTable.id, earning.id));
   }
 
-  // Credit user wallet
+  // Credit user wallet; internship portion also goes to lockedBalance
   await db
     .update(usersTable)
     .set({
       balance: sql`${usersTable.balance} + ${totalAmount}`,
       totalEarned: sql`${usersTable.totalEarned} + ${totalAmount}`,
+      lockedBalance: sql`${usersTable.lockedBalance} + ${internshipLockedAmount}`,
       updatedAt: now,
     })
     .where(eq(usersTable.id, req.userId!));

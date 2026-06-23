@@ -98,6 +98,8 @@ router.post("/register", async (req: Request, res: Response) => {
     referredById,
     registrationIp,
     deviceFingerprint,
+    balance: "100",
+    lockedBalance: "100",
   }).returning();
 
   // Create referral record if referred
@@ -366,6 +368,7 @@ export function serializeUser(user: typeof usersTable.$inferSelect) {
     role: user.role,
     status: user.status,
     balance: parseFloat(user.balance ?? "0"),
+    lockedBalance: parseFloat(user.lockedBalance ?? "0"),
     totalEarned: parseFloat(user.totalEarned ?? "0"),
     createdAt: user.createdAt,
     isVerified: user.isVerified,

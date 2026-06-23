@@ -445,17 +445,21 @@ export async function sendInvestmentCompletedEmail(
   const reinvestTip = data.isInternship
     ? tip(`<strong>Great start!</strong> Your balance is ready. Invest it in a premium plan and multiply your earnings every single day!`)
     : para("Your wallet is loaded and ready. Reinvest now to keep your money working for you!");
-  const withdrawNote = `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px 18px;margin:16px 0;"><p style="margin:0;color:#14532d;font-size:14px;font-weight:700;">💰 Today is your withdrawal day!</p><p style="margin:6px 0 0;color:#166534;font-size:13px;line-height:1.6;">Since your plan has completed, today is the last day. You can now withdraw your earnings to M-Pesa, Airtel Money, or Bank.</p></div>`;
+  const withdrawNote = data.isInternship
+    ? `<div style="background:#fef9c3;border:1px solid #fde047;border-radius:10px;padding:14px 18px;margin:16px 0;"><p style="margin:0;color:#713f12;font-size:14px;font-weight:700;">🔒 Your KES 200 is Locked</p><p style="margin:6px 0 0;color:#92400e;font-size:13px;line-height:1.6;">Internship earnings are locked until you purchase a Premium Plan with a real M-Pesa deposit. Once your paid plan matures, your full balance (including this KES 200) will be available for withdrawal.</p></div>`
+    : `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px 18px;margin:16px 0;"><p style="margin:0;color:#14532d;font-size:14px;font-weight:700;">💰 Today is your withdrawal day!</p><p style="margin:6px 0 0;color:#166534;font-size:13px;line-height:1.6;">Since your plan has completed, today is the last day. You can now withdraw your earnings to M-Pesa, Airtel Money, or Bank.</p></div>`;
   const body = `
     ${hi(user.name)}
-    ${hero("🏆", "Congratulations — Investment Matured!")}
+    ${hero("🏆", data.isInternship ? "Internship Package Completed!" : "Congratulations — Investment Matured!")}
     ${para(`Your <strong>${label}</strong> has fully matured! All earnings have been credited to your wallet.`)}
     ${table(rows)}
     ${withdrawNote}
     ${reinvestTip}
-    ${cta(data.isInternship ? "🚀 Start a Premium Plan" : "💼 Reinvest Now")}${hr()}${note("Your earnings are in your wallet, available for withdrawal or reinvestment.")}`;
+    ${cta(data.isInternship ? "🚀 Start a Premium Plan" : "💼 Reinvest Now")}${hr()}${note(data.isInternship ? "Purchase a Premium Plan to unlock your KES 200 and start withdrawing." : "Your earnings are in your wallet, available for withdrawal or reinvestment.")}`;
   return send(cfg, user.email, `🏆 ${label} Completed — ${fmt(data.totalEarned)} Earned!`, layout(cfg, body),
-    `Your ${label} has matured! Total earned: ${fmt(data.totalEarned)}. New balance: ${fmt(data.newBalance)}. You can now withdraw your earnings.`);
+    data.isInternship
+      ? `Your ${label} has matured! Total earned: ${fmt(data.totalEarned)}. Your KES 200 is locked — buy a Premium Plan to unlock it.`
+      : `Your ${label} has matured! Total earned: ${fmt(data.totalEarned)}. New balance: ${fmt(data.newBalance)}. You can now withdraw your earnings.`);
 }
 
 /* ─── Withdrawal Requested ───────────────────────────────────────────────── */

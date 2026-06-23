@@ -15,6 +15,7 @@ export const usersTable = pgTable("users", {
   role: userRoleEnum("role").notNull().default("user"),
   status: userStatusEnum("status").notNull().default("active"),
   balance: numeric("balance", { precision: 14, scale: 2 }).notNull().default("0"),
+  lockedBalance: numeric("locked_balance", { precision: 14, scale: 2 }).notNull().default("0"),
   totalEarned: numeric("total_earned", { precision: 14, scale: 2 }).notNull().default("0"),
   isInternshipEligible: boolean("is_internship_eligible").notNull().default(false),
   internshipActivated: boolean("internship_activated").notNull().default(false),

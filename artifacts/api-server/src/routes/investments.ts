@@ -32,6 +32,12 @@ router.post("/internship", requireAuth, async (req: AuthRequest, res: Response) 
     res.status(400).json({ error: "Internship package already activated" });
     return;
   }
+  const userBalance = parseFloat(user.balance ?? "0");
+  const userLockedBalance = parseFloat(user.lockedBalance ?? "0");
+  if (userBalance < 100 || userLockedBalance < 100) {
+    res.status(400).json({ error: "Insufficient starter credit to activate internship" });
+    return;
+  }
   let [internshipPlan] = await db.select().from(plansTable).where(eq(plansTable.isInternship, true)).limit(1);
   if (!internshipPlan) {
     // Auto-seed the internship plan if an admin hasn't created one yet
@@ -61,7 +67,11 @@ router.post("/internship", requireAuth, async (req: AuthRequest, res: Response) 
     startedAt,
     completesAt,
   }).returning();
-  await db.update(usersTable).set({ internshipActivated: true }).where(eq(usersTable.id, req.userId!));
+  await db.update(usersTable).set({
+    internshipActivated: true,
+    balance: sql`${usersTable.balance} - 100`,
+    lockedBalance: sql`${usersTable.lockedBalance} - 100`,
+  }).where(eq(usersTable.id, req.userId!));
   await db.insert(activityLogsTable).values({
     userId: req.userId!,
     userEmail: user.email,
