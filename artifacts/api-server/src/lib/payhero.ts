@@ -1,10 +1,13 @@
 /**
  * PayHero API client — C2B STK push only.
  *
- * Required env vars:
+ * Credentials are read via getConfig(), which checks env vars first,
+ * then falls back to the configKeys column in platform_settings (admin panel).
  *   PAYHERO_AUTH_TOKEN  — base64-encoded "clientId:clientSecret" from PayHero dashboard
  *   PAYHERO_CHANNEL_ID  — numeric channel ID from PayHero dashboard
  */
+
+import { getConfig } from "./config";
 
 const PAYHERO_BASE = "https://backend.payhero.co.ke/api/v2";
 
@@ -34,8 +37,8 @@ export async function initiateSTKPush(opts: {
   callbackUrl: string;
   customerName?: string;
 }): Promise<STKPushResult> {
-  const authToken = process.env["PAYHERO_AUTH_TOKEN"];
-  const channelId = process.env["PAYHERO_CHANNEL_ID"];
+  const authToken = await getConfig("PAYHERO_AUTH_TOKEN");
+  const channelId = await getConfig("PAYHERO_CHANNEL_ID");
 
   if (!authToken || !channelId) {
     throw new Error("PayHero credentials not configured (PAYHERO_AUTH_TOKEN, PAYHERO_CHANNEL_ID)");
