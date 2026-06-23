@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowUpFromLine, AlertCircle, Loader2 } from "lucide-react";
 import { OtpDialog } from "@/components/otp-dialog";
+import { BannedScreen } from "@/components/banned-screen";
 import { apiUrl } from "@/lib/api-url";
 
 const loginSchema = z.object({
@@ -42,6 +43,7 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const { login, isLoggingIn } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [bannedInfo, setBannedInfo] = useState<{ email: string; reason?: string } | null>(null);
   const [pendingValues, setPendingValues] = useState<LoginValues | null>(null);
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
   const [otpOpen, setOtpOpen] = useState(false);
@@ -62,11 +64,19 @@ export default function Login() {
     return data as { channel?: "whatsapp" | "email" };
   };
 
+  if (bannedInfo) {
+    return <BannedScreen email={bannedInfo.email} reason={bannedInfo.reason} />;
+  }
+
   const onSubmit = async (values: LoginValues) => {
     setError(null);
     setSendingOtp(true);
     try {
       const pre = await callApi("/api/auth/pre-login", { email: values.email, password: values.password });
+      if (pre.banned) {
+        setBannedInfo({ email: values.email, reason: pre.reason });
+        return;
+      }
 
       // Admin / superadmin skip OTP — log in directly
       if (pre.skipOtp) {

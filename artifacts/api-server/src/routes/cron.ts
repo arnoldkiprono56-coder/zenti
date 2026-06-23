@@ -279,6 +279,32 @@ router.all("/process-returns", async (req: Request, res: Response) => {
     }
   }
 
+  // Clean up unverified accounts older than 24 hours
+  (async () => {
+    try {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const unverified = await db
+        .select({ id: usersTable.id, email: usersTable.email })
+        .from(usersTable)
+        .where(
+          and(
+            eq(usersTable.isVerified, false),
+            eq(usersTable.status, "active"),
+            sql`${usersTable.role} = 'user'`,
+            lt(usersTable.createdAt, twentyFourHoursAgo),
+          )
+        );
+      for (const u of unverified) {
+        await db.update(usersTable).set({ status: "suspended", updatedAt: new Date() }).where(eq(usersTable.id, u.id));
+      }
+      if (unverified.length > 0) {
+        console.log(`[Cron] Suspended ${unverified.length} unverified account(s) older than 24h`);
+      }
+    } catch (err) {
+      console.error("[Cron] Unverified cleanup failed:", err instanceof Error ? err.message : err);
+    }
+  })();
+
   // Run daily fraud sweep in background — doesn't block cron response
   (async () => {
     try {

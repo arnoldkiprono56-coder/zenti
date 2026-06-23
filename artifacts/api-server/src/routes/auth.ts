@@ -8,6 +8,8 @@ import { eq, and, gt } from "drizzle-orm";
 import { signToken, requireAuth, AuthRequest } from "../middlewares/auth";
 import { generateReferralCode } from "./referrals";
 import { autoBanCheck, buildDeviceFingerprint } from "../lib/auto-ban";
+import { getCountryFromIp, isKenyaIp, countryName } from "../lib/geo";
+import { isDisposableEmail } from "../lib/disposable-domains";
 
 const router = Router();
 
@@ -30,6 +32,25 @@ router.post("/register", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Phone must be a valid Kenyan number (07XX or 01XX)" });
     return;
   }
+
+  // ── Geo-block: Kenya-only registration ────────────────────────────
+  const regIpRaw = getClientIp(req);
+  if (!isKenyaIp(regIpRaw)) {
+    const country = getCountryFromIp(regIpRaw);
+    const countryLabel = country ? countryName(country) : "an unsupported country";
+    res.status(403).json({
+      error: `Registration is only available in Kenya. Your connection appears to be from ${countryLabel}. If you are in Kenya, please disable any VPN or proxy and try again.`,
+      geoBlocked: true,
+    });
+    return;
+  }
+
+  // ── Disposable email block ─────────────────────────────────────────
+  if (isDisposableEmail(email)) {
+    res.status(400).json({ error: "Disposable or temporary email addresses are not allowed. Please use a real email address." });
+    return;
+  }
+
   const existing = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
   if (existing.length > 0) {
     res.status(400).json({ error: "Email already registered" });
@@ -82,6 +103,7 @@ router.post("/register", async (req: Request, res: Response) => {
 
   // Capture device fingerprint and registration IP
   const registrationIp = getClientIp(req);
+  const registrationCountry = getCountryFromIp(registrationIp) ?? "KE";
   const deviceFingerprint = buildDeviceFingerprint(
     req.headers["user-agent"] ?? "",
     req.headers["accept-language"] ?? "",
@@ -97,6 +119,7 @@ router.post("/register", async (req: Request, res: Response) => {
     referralCode,
     referredById,
     registrationIp,
+    registrationCountry,
     deviceFingerprint,
     balance: "100",
     lockedBalance: "100",
@@ -124,7 +147,7 @@ router.post("/register", async (req: Request, res: Response) => {
   // Fire-and-forget: auto-ban check (runs in background after response is sent)
   // User is allowed to register; ban happens silently if fraud is detected
   setTimeout(() => {
-    autoBanCheck(user.id, normalizedPhone, registrationIp, deviceFingerprint).then((result) => {
+    autoBanCheck(user.id, normalizedPhone, registrationIp, deviceFingerprint, email, referredById).then((result) => {
       if (result.banned) {
         console.warn(`[AutoBan] User #${user.id} (${email}) banned: ${result.reason} — ${result.accountsAffected} account(s) affected`);
       }
@@ -183,6 +206,36 @@ router.post("/pre-login", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
+
+  // ── Country-change detection (non-admin only) ──────────────────────
+  if (user.role === "user") {
+    const loginIp = getClientIp(req);
+    const loginCountry = getCountryFromIp(loginIp);
+    const regCountry = user.registrationCountry ?? "KE";
+
+    if (loginCountry && loginCountry !== regCountry) {
+      // Ban immediately — foreign login not allowed
+      const reason = `Security alert: login attempt from ${countryName(loginCountry)} but account was registered in ${countryName(regCountry)}. For your security, the account has been locked. If this was you, please appeal.`;
+      const now = new Date();
+      await db.update(usersTable).set({ status: "banned", bannedReason: reason, bannedAt: now, updatedAt: now }).where(eq(usersTable.id, user.id));
+      await db.insert(activityLogsTable).values({
+        userId: user.id,
+        userEmail: user.email,
+        action: "account_auto_banned",
+        details: `Country-change ban: registered in ${regCountry}, login from ${loginCountry} (IP: ${loginIp})`,
+        ipAddress: loginIp,
+      });
+      (async () => {
+        try {
+          const { sendAccountBannedEmail } = await import("../lib/email");
+          await sendAccountBannedEmail({ email: user.email, name: user.fullName }, { reason, supportEmail: "support@zenti.run.place", siteUrl: "https://zenti.run.place" });
+        } catch { /* silent */ }
+      })();
+      res.status(403).json({ error: "Login blocked: your account has been locked due to a foreign login attempt.", banned: true, reason, supportEmail: "support@zenti.run.place" });
+      return;
+    }
+  }
+
   const skipOtp = user.role === "admin" || user.role === "superadmin";
   res.json({ phone: user.phone, role: user.role, skipOtp });
 });
@@ -212,12 +265,23 @@ router.post("/login", async (req: Request, res: Response) => {
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
+  const loginIp = getClientIp(req);
+  const loginCountry = getCountryFromIp(loginIp) ?? user.registrationCountry ?? "KE";
+  const now = new Date();
+
+  await db.update(usersTable).set({
+    lastLoginIp: loginIp,
+    lastLoginAt: now,
+    lastLoginCountry: loginCountry,
+    updatedAt: now,
+  }).where(eq(usersTable.id, user.id));
+
   await db.insert(activityLogsTable).values({
     userId: user.id,
     userEmail: user.email,
     action: "user_login",
-    details: `User logged in`,
-    ipAddress: req.ip || "unknown",
+    details: `User logged in from ${loginCountry} (IP: ${loginIp})`,
+    ipAddress: loginIp,
   });
   const token = signToken(user.id);
   res.json({ user: serializeUser(user), token });

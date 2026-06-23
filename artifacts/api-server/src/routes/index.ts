@@ -13,6 +13,7 @@ import referralsRouter from "./referrals";
 import cronRouter from "./cron";
 import otpRouter from "./otp";
 import earningsRouter from "./earnings";
+import appealsRouter from "./appeals";
 
 const router: IRouter = Router();
 
@@ -31,5 +32,6 @@ router.use("/stats", requireVerified, statsRouter);
 router.use("/referrals", requireVerified, referralsRouter);
 router.use("/earnings", requireVerified, earningsRouter);
 router.use("/cron", cronRouter);
+router.use("/appeals", appealsRouter);
 
 export default router;

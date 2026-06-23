@@ -7,6 +7,7 @@ import { useGetSettings } from "@workspace/api-client-react";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { OtpDialog } from "@/components/otp-dialog";
 import { SupportChat } from "@/components/support-chat";
+import { BannedScreen } from "@/components/banned-screen";
 import { apiUrl } from "@/lib/api-url";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -126,6 +127,17 @@ export function Layout({ children, requireAuth = false, requireAdmin = false }: 
       <div className="min-h-[100dvh] flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
+    );
+  }
+
+  // Show banned screen for banned authenticated users
+  if (isAuthenticated && user && (user as any).status === "banned") {
+    return (
+      <BannedScreen
+        email={(user as any).email}
+        reason={(user as any).bannedReason ?? undefined}
+        supportEmail="support@zenti.run.place"
+      />
     );
   }
 
