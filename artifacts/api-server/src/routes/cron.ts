@@ -9,6 +9,7 @@ import {
   claimableEarningsTable,
 } from "@workspace/db";
 import { eq, and, lte, or, isNull, sql, lt } from "drizzle-orm";
+import { runFraudSweep } from "../lib/auto-ban";
 
 const router = Router();
 
@@ -277,6 +278,24 @@ router.all("/process-returns", async (req: Request, res: Response) => {
       errors.push(`investment #${inv.id}: ${String(err)}`);
     }
   }
+
+  // Run daily fraud sweep in background — doesn't block cron response
+  (async () => {
+    try {
+      const sweep = await runFraudSweep();
+      if (sweep.banned > 0) {
+        await db.insert(activityLogsTable).values({
+          userId: 0,
+          userEmail: "system",
+          action: "fraud_sweep_completed",
+          details: `Daily fraud sweep: checked ${sweep.checked} accounts, banned ${sweep.banned}`,
+          ipAddress: "cron",
+        });
+      }
+    } catch (err) {
+      console.error("[FraudSweep] Failed:", err instanceof Error ? err.message : err);
+    }
+  })();
 
   res.json({
     processed,
