@@ -74283,7 +74283,10 @@ function buildTransporter(cfg) {
     host: cfg.host,
     port: cfg.port,
     secure: cfg.port === 465,
-    auth: { user: cfg.user, pass: cfg.pass }
+    auth: { user: cfg.user, pass: cfg.pass },
+    connectionTimeout: 8e3,
+    greetingTimeout: 8e3,
+    socketTimeout: 1e4
   });
 }
 async function send(cfg, to, subject, html, text2) {
