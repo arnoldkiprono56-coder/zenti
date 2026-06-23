@@ -90,9 +90,7 @@ app.use("/api", globalLimiter);
 app.use("/api/auth", authLimiter);
 app.use("/api/otp", otpLimiter);
 
-app.use(maintenanceMiddleware());
-
-// Diagnostic endpoint — shows which env vars are present (never their values)
+// Diagnostic endpoint — before all middleware so it always responds instantly
 app.get("/api/diag", (_req: Request, res: Response) => {
   const vars = ["NEON_DATABASE_URL", "DATABASE_URL", "SESSION_SECRET", "SMTP_USER", "SMTP_PASS", "APP_URL", "FRONTEND_URL", "NODE_ENV"];
   res.json({
@@ -100,6 +98,8 @@ app.get("/api/diag", (_req: Request, res: Response) => {
     env: Object.fromEntries(vars.map((k) => [k, !!process.env[k]])),
   });
 });
+
+app.use(maintenanceMiddleware());
 
 app.use("/api", router);
 
