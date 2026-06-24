@@ -1,9 +1,10 @@
 import { Router, Request, Response } from "express";
 import { db } from "@workspace/db";
-import { transactionsTable, usersTable, activityLogsTable, fraudFlagsTable, referralsTable, platformSettingsTable, investmentsTable, plansTable } from "@workspace/db";
+import { transactionsTable, usersTable, activityLogsTable, fraudFlagsTable, referralsTable, platformSettingsTable, investmentsTable, plansTable, ticketsTable } from "@workspace/db";
 import { eq, sql, and } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
 import { initiateSTKPush } from "../lib/payhero";
+import { createTicket, closeTicket } from "../lib/tickets";
 
 const router = Router();
 
@@ -86,12 +87,38 @@ router.post("/deposit", requireAuth, async (req: AuthRequest, res: Response) => 
     await db.update(transactionsTable).set({ isFlagged: true }).where(eq(transactionsTable.id, txn.id));
   }
 
+  // Create deposit ticket
+  const ticket = await createTicket({
+    type: "deposit",
+    userId: req.userId!,
+    relatedId: txn.id,
+    metadata: { amount, phone, status: "initiated" },
+  });
+
+  // Store ticket number in transaction notes
+  await db.update(transactionsTable)
+    .set({ notes: `Ticket: ${ticket.ticketNumber}` })
+    .where(eq(transactionsTable.id, txn.id));
+
   const appUrl =
     process.env["APP_URL"] ??
     `${req.protocol}://${req.headers["x-forwarded-host"] ?? req.get("host")}`;
   const callbackUrl = `${appUrl}/api/transactions/callback/payhero`;
 
-  const [user] = await db.select({ fullName: usersTable.fullName }).from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  const [user] = await db.select({ fullName: usersTable.fullName, email: usersTable.email, phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+
+  // Send deposit initiated email (fire-and-forget)
+  if (user?.email) {
+    (async () => {
+      try {
+        const { sendDepositInitiatedEmail } = await import("../lib/email");
+        await sendDepositInitiatedEmail(
+          { email: user.email, name: user.fullName },
+          { amount, phone, ticketNumber: ticket.ticketNumber },
+        );
+      } catch { /* silent */ }
+    })();
+  }
 
   try {
     const result = await initiateSTKPush({
@@ -109,12 +136,30 @@ router.post("/deposit", requireAuth, async (req: AuthRequest, res: Response) => 
     res.json({
       message: "STK push sent. Check your phone for the M-Pesa prompt.",
       transactionId: txn.id,
+      ticketNumber: ticket.ticketNumber,
       checkoutRequestId: result.checkoutRequestId,
     });
   } catch (err) {
     await db.update(transactionsTable)
       .set({ status: "failed" })
       .where(eq(transactionsTable.id, txn.id));
+
+    // Close the ticket as resolved (failed)
+    await closeTicket(ticket.id, "resolved");
+
+    // Send deposit failed email
+    if (user?.email) {
+      (async () => {
+        try {
+          const { sendDepositFailedEmail } = await import("../lib/email");
+          const message = err instanceof Error ? err.message : "Failed to initiate M-Pesa payment";
+          await sendDepositFailedEmail(
+            { email: user.email, name: user.fullName },
+            { amount, phone, ticketNumber: ticket.ticketNumber, reason: message },
+          );
+        } catch { /* silent */ }
+      })();
+    }
 
     const message = err instanceof Error ? err.message : "Failed to initiate M-Pesa payment";
     res.status(502).json({ error: message });
@@ -145,6 +190,9 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
 
   if (!txn || txn.status !== "pending") return;
 
+  // Extract ticket number from transaction notes
+  const ticketNumber = txn.notes?.match(/Ticket: (ZEN-\d{8}-\d{5})/)?.[1];
+
   if (status === "SUCCESS") {
     const confirmedAmount = rawAmount > 0 ? rawAmount : parseFloat(txn.amount);
 
@@ -155,6 +203,7 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
     await db.update(usersTable)
       .set({
         balance: sql`${usersTable.balance} + ${confirmedAmount}`,
+        dormancyStartedAt: null,
         updatedAt: new Date(),
       })
       .where(eq(usersTable.id, txn.userId));
@@ -165,7 +214,7 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
       userId: txn.userId,
       userEmail: user?.email ?? "unknown",
       action: "deposit_completed",
-      details: `PayHero M-Pesa deposit of KES ${confirmedAmount} confirmed (ref: ${externalReference})`,
+      details: `PayHero M-Pesa deposit of KES ${confirmedAmount} confirmed (ref: ${externalReference})${ticketNumber ? ` [${ticketNumber}]` : ""}`,
       ipAddress: "payhero-callback",
     });
 
@@ -179,7 +228,8 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
           const time = new Date().toLocaleString("en-KE", { timeZone: "Africa/Nairobi" });
           await sendMessage(user.phone,
             `💰 *Deposit Confirmed — Zenti*\n\nHi ${user.fullName},\n\nYour M-Pesa deposit has been received!\n\n` +
-            `✅ *Amount:* KES ${amountFmt}\n🏦 *New Balance:* KES ${balFmt}\n📋 *Ref:* ${externalReference}\n🕐 *Time:* ${time}\n\n` +
+            `✅ *Amount:* KES ${amountFmt}\n🏦 *New Balance:* KES ${balFmt}\n📋 *Ref:* ${externalReference}\n🕐 *Time:* ${time}\n` +
+            `${ticketNumber ? `🎫 *Ticket:* ${ticketNumber}\n` : ""}\n` +
             `Your funds are ready to invest. Log in to Zenti now! 🚀`
           );
         } catch { /* silent */ }
@@ -191,7 +241,7 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
           const newBal = parseFloat(user.balance ?? "0") + confirmedAmount;
           await sendDepositConfirmedEmail(
             { email: user.email, name: user.fullName },
-            { amount: confirmedAmount, newBalance: newBal, reference: externalReference, method: "M-Pesa" },
+            { amount: confirmedAmount, newBalance: newBal, reference: externalReference, method: "M-Pesa", ticketNumber },
           );
         } catch { /* silent */ }
       })();
@@ -227,6 +277,22 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
     await db.update(transactionsTable)
       .set({ status: "failed", updatedAt: new Date() })
       .where(eq(transactionsTable.id, txnId));
+
+    // Send deposit failed email
+    const [user] = await db.select({ email: usersTable.email, fullName: usersTable.fullName, phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, txn.userId)).limit(1);
+    if (user?.email && ticketNumber) {
+      (async () => {
+        try {
+          const { sendDepositFailedEmail } = await import("../lib/email");
+          const amount = parseFloat(txn.amount);
+          const failReason = String(body["failure_reason"] ?? body["result_description"] ?? "Payment was cancelled or timed out");
+          await sendDepositFailedEmail(
+            { email: user.email, name: user.fullName },
+            { amount, phone: txn.phoneOrAccount ?? user.phone, ticketNumber, reason: failReason },
+          );
+        } catch { /* silent */ }
+      })();
+    }
   }
 });
 
@@ -251,7 +317,6 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
   // ── WITHDRAWAL LOCK ────────────────────────────────────────────────────────
-  // Active investments joined with their plan's isInternship flag
   const activeInvestments = await db
     .select({
       id: investmentsTable.id,
@@ -278,7 +343,6 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
   let isLastDayUnlock = false;
 
   if (lockedBalance > 0) {
-    // User has locked internship earnings — must have a real paid investment to withdraw
     if (realInvestments.length === 0) {
       res.status(400).json({
         error: `Your KES ${lockedBalance.toFixed(0)} internship earnings are locked. Purchase a Premium Plan with a real M-Pesa deposit to unlock your earnings and access withdrawals.`,
@@ -286,13 +350,11 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
       return;
     }
 
-    // Last day of any real investment → full balance unlocks
     const lastDayReal = realInvestments.find(i => isLastDayKE(i.completesAt));
     if (lastDayReal) {
       withdrawable = balance;
       isLastDayUnlock = true;
     } else {
-      // Mid-plan: only the amount above the locked portion is withdrawable
       withdrawable = balance - lockedBalance;
       if (withdrawable <= 0) {
         const soonest = realInvestments.reduce((min, i) => {
@@ -310,7 +372,6 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
       }
     }
   } else {
-    // No internship lock: original last-day-only rule for any active investment
     const soonestInvestment = activeInvestments.reduce((min, i) => {
       if (!i.completesAt) return min;
       return !min || i.completesAt < min.completesAt! ? i : min;
@@ -394,6 +455,13 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
       sql`${transactionsTable.userId} = ${req.userId} AND ${transactionsTable.type} = 'withdrawal' AND ${transactionsTable.createdAt} > now() - interval '10 minutes'`
     );
 
+  // Create withdrawal ticket
+  const ticket = await createTicket({
+    type: "withdrawal",
+    userId: req.userId!,
+    metadata: { grossAmount, feeAmount, netAmount, method, account: phoneOrAccount },
+  });
+
   const [txn] = await db.insert(transactionsTable).values({
     userId: req.userId!,
     type: "withdrawal",
@@ -402,8 +470,13 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
     status: "pending",
     method: method as "mpesa" | "airtel_money" | "bank",
     phoneOrAccount,
-    notes: `Fee: ${feePercent}% (KES ${feeAmount.toFixed(2)}). Net payout: KES ${netAmount.toFixed(2)}`,
+    notes: `Fee: ${feePercent}% (KES ${feeAmount.toFixed(2)}). Net payout: KES ${netAmount.toFixed(2)}. Ticket: ${ticket.ticketNumber}`,
   }).returning();
+
+  // Update ticket with relatedId now that we have transaction ID
+  await db.update(ticketsTable)
+    .set({ relatedId: txn.id, updatedAt: new Date() })
+    .where(eq(ticketsTable.id, ticket.id));
 
   if (recentWithdrawals.length >= 3) {
     await db.insert(fraudFlagsTable).values({
@@ -425,7 +498,7 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
     userId: req.userId!,
     userEmail: user.email,
     action: "withdrawal_requested",
-    details: `Withdrawal KES ${grossAmount} (fee: KES ${feeAmount}, net: KES ${netAmount}) via ${method} to ${phoneOrAccount}`,
+    details: `Withdrawal KES ${grossAmount} (fee: KES ${feeAmount}, net: KES ${netAmount}) via ${method} to ${phoneOrAccount} [${ticket.ticketNumber}]`,
     ipAddress: req.ip || "unknown",
   });
 
@@ -439,7 +512,7 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
       const time = new Date().toLocaleString("en-KE", { timeZone: "Africa/Nairobi" });
       await sendMessage(user.phone,
         `📤 *Withdrawal Request — Zenti*\n\nHi ${user.fullName},\n\nYour withdrawal is under review.\n\n` +
-        `💰 *Amount:* KES ${grossFmt}\n💸 *Fee (${feePercent}%):* KES ${feeFmt}\n✅ *You receive:* KES ${netFmt}\n📲 *Method:* ${methodFmt}\n🏦 *Account:* ${phoneOrAccount}\n🕐 *Submitted:* ${time}\n\nWe'll notify you once processed. 🙏`
+        `💰 *Amount:* KES ${grossFmt}\n💸 *Fee (${feePercent}%):* KES ${feeFmt}\n✅ *You receive:* KES ${netFmt}\n📲 *Method:* ${methodFmt}\n🏦 *Account:* ${phoneOrAccount}\n🕐 *Submitted:* ${time}\n🎫 *Ticket:* ${ticket.ticketNumber}\n\nWe'll notify you once processed. 🙏`
       );
     } catch { /* silent */ }
   })();
@@ -449,12 +522,12 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
       const { sendWithdrawalRequestedEmail } = await import("../lib/email");
       await sendWithdrawalRequestedEmail(
         { email: user.email, name: user.fullName },
-        { amount: grossAmount, fee: feeAmount, netAmount, method, account: phoneOrAccount, feePercent },
+        { amount: grossAmount, fee: feeAmount, netAmount, method, account: phoneOrAccount, feePercent, ticketNumber: ticket.ticketNumber },
       );
     } catch { /* silent */ }
   })();
 
-  res.status(201).json(serializeTxn(txn));
+  res.status(201).json({ ...serializeTxn(txn), ticketNumber: ticket.ticketNumber });
 });
 
 export function serializeTxn(txn: typeof transactionsTable.$inferSelect) {

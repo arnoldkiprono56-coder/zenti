@@ -8,8 +8,7 @@ import {
 import { eq, and, ne, gte, lt, sql, count, inArray } from "drizzle-orm";
 import { isDisposableEmail } from "./disposable-domains";
 
-const SUPPORT_EMAIL = "support@zenti.run.place";
-const SITE_URL = "https://zenti.run.place";
+const SITE_URL = "https://zenti-investment-kenya.vercel.app";
 
 export interface BanResult {
   banned: boolean;
@@ -44,7 +43,7 @@ async function banUser(userId: number, reason: string, triggerIp: string): Promi
         const { sendAccountBannedEmail } = await import("./email");
         await sendAccountBannedEmail(
           { email: user.email, name: user.fullName },
-          { reason, supportEmail: SUPPORT_EMAIL, siteUrl: SITE_URL },
+          { reason, siteUrl: SITE_URL },
         );
       } catch { /* silent */ }
     })();

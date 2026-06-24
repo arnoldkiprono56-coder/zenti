@@ -12,3 +12,4 @@ export * from "./otps";
 export * from "./claimable_earnings";
 export * from "./support_messages";
 export * from "./ban_appeals";
+export * from "./tickets";

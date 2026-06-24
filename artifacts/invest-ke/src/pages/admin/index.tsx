@@ -10,7 +10,7 @@ import {
   Users, TrendingUp, DollarSign, AlertTriangle,
   ArrowDownToLine, ClipboardList, ShieldAlert,
   Settings, MessageSquare, Gift, Activity,
-  CheckCircle2, Clock, BarChart3, MessageSquareMore,
+  CheckCircle2, Clock, BarChart3, MessageSquareMore, ShieldX,
 } from "lucide-react";
 
 export default function AdminDashboard() {
@@ -86,6 +86,7 @@ export default function AdminDashboard() {
             { icon: Activity,        label: "Activity Logs",      href: "/admin/logs",         desc: "Platform-wide audit log" },
             { icon: Settings,        label: "Platform Settings",  href: "/admin/settings",     desc: "Company info & maintenance" },
             { icon: MessageSquareMore, label: "Notifications",      href: "/admin/notifications", desc: "OTP delivery method & email/WhatsApp" },
+            { icon: ShieldX,          label: "Ban Appeals",         href: "/admin/appeals",       desc: "Review & resolve user ban appeals" },
           ].map(({ icon: Icon, label, href, desc }) => (
             <Link key={href} href={href}>
               <Card className="hover:border-primary/50 hover:shadow-sm cursor-pointer transition-all h-full group">
@@ -157,6 +158,7 @@ export default function AdminDashboard() {
                 { href: "/admin/fraud",        label: "Fraud Flags",          icon: AlertTriangle,   cls: "text-red-600" },
                 { href: "/admin/logs",         label: "Activity Logs",        icon: Activity,        cls: "text-primary" },
                 { href: "/admin/requests",     label: "Support Requests",     icon: MessageSquare,   cls: "text-blue-600" },
+                { href: "/admin/appeals",      label: "Ban Appeals",           icon: ShieldX,         cls: "text-destructive" },
               ].map(({ href, label, icon: Icon, cls }) => (
                 <Link key={href} href={href}>
                   <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted cursor-pointer transition-colors">

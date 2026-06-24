@@ -1,5 +1,8 @@
 import nodemailer from "nodemailer";
 
+const APP_URL = "https://zenti-investment-kenya.vercel.app";
+const SUPPORT_URL = `${APP_URL}/support`;
+
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 
 export interface SmtpConfig {
@@ -22,6 +25,7 @@ export interface EmailOtpPayload {
   code: string;
   reason?: string;
   name?: string;
+  ticketNumber?: string;
 }
 
 export interface EmailNotificationPayload {
@@ -31,6 +35,7 @@ export interface EmailNotificationPayload {
   heading: string;
   body: string;
   icon?: string;
+  ticketNumber?: string;
 }
 
 /* ─── Config helper ──────────────────────────────────────────────────────── */
@@ -95,8 +100,6 @@ async function send(cfg: SmtpConfig, to: string, subject: string, html: string, 
 /* ─── HTML Layout ────────────────────────────────────────────────────────── */
 
 function layout(cfg: SmtpConfig, body: string): string {
-  // Fix: use cfg.fromEmail and cfg.fromName from settings instead of hardcoded values
-  const supportEmail = cfg.fromEmail || "support@zenti.run.place";
   const fromName = cfg.fromName || "Zenti";
   return `<!DOCTYPE html>
 <html lang="en">
@@ -114,7 +117,9 @@ function layout(cfg: SmtpConfig, body: string): string {
         <tr><td style="padding:36px 40px;">${body}</td></tr>
         <tr>
           <td style="background:#f7fdf9;padding:16px 40px;text-align:center;border-top:1px solid #d1fae5;">
-            <p style="margin:0 0 4px;color:#6b7280;font-size:12px;">Questions? <a href="mailto:${supportEmail}" style="color:#16a34a;text-decoration:none;">${supportEmail}</a></p>
+            <p style="margin:0 0 8px;color:#6b7280;font-size:12px;">
+              Questions? <a href="${SUPPORT_URL}" style="color:#16a34a;text-decoration:none;font-weight:600;">Open a support ticket</a>
+            </p>
             <p style="margin:0;color:#9ca3af;font-size:11px;">&copy; ${new Date().getFullYear()} ${fromName}. All rights reserved. Nairobi, Kenya.</p>
           </td>
         </tr>
@@ -135,7 +140,7 @@ function table(rows: string): string {
   return `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:20px 0;">${rows}</table>`;
 }
 
-function cta(text: string, url = "https://zenti.run.place"): string {
+function cta(text: string, url = APP_URL): string {
   return `<table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 8px;"><tr><td align="center"><a href="${url}" style="display:inline-block;background:linear-gradient(135deg,#14532d,#16a34a);color:#ffffff;text-decoration:none;padding:14px 36px;border-radius:8px;font-weight:700;font-size:15px;">${text}</a></td></tr></table>`;
 }
 
@@ -174,6 +179,17 @@ function warningBox(text: string): string {
   </div>`;
 }
 
+function ticketBadge(ticketNumber: string): string {
+  return `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 16px;margin:16px 0;display:flex;align-items:center;justify-content:space-between;">
+    <span style="color:#6b7280;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Ticket Reference</span>
+    <span style="color:#14532d;font-size:13px;font-weight:800;letter-spacing:0.05em;font-family:'Courier New',monospace;">${ticketNumber}</span>
+  </div>`;
+}
+
+function supportLink(): string {
+  return `<a href="${SUPPORT_URL}" style="color:#16a34a;text-decoration:none;font-weight:600;">open a support ticket</a>`;
+}
+
 /* ─── OTP Email ──────────────────────────────────────────────────────────── */
 
 export async function sendEmailOtp(payload: EmailOtpPayload, smtpConfig?: SmtpConfig): Promise<EmailResult> {
@@ -188,6 +204,7 @@ export async function sendEmailOtp(payload: EmailOtpPayload, smtpConfig?: SmtpCo
       </div>
     </td></tr></table>
     <p style="margin:0 0 4px;color:#6b7280;font-size:13px;text-align:center;">Expires in <strong>5 minutes</strong>. Never share it with anyone.</p>
+    ${payload.ticketNumber ? ticketBadge(payload.ticketNumber) : ""}
     ${hr()}${note("If you didn't request this code, you can safely ignore this email.")}`;
   return send(cfg, payload.email, `${payload.code} — Your ${cfg.fromName} Verification Code`, layout(cfg, body),
     `Your ${cfg.fromName} verification code for ${reason} is: ${payload.code}\n\nExpires in 5 minutes. Do not share.`);
@@ -200,7 +217,8 @@ export async function sendEmailNotification(payload: EmailNotificationPayload, s
   const body = `
     <div style="font-size:36px;text-align:center;margin-bottom:12px;">${payload.icon ?? "📬"}</div>
     <h2 style="margin:0 0 20px;color:#111827;font-size:19px;text-align:center;">${payload.heading}</h2>
-    <div style="color:#374151;font-size:15px;line-height:1.7;">${payload.body}</div>`;
+    <div style="color:#374151;font-size:15px;line-height:1.7;">${payload.body}</div>
+    ${payload.ticketNumber ? ticketBadge(payload.ticketNumber) : ""}`;
   return send(cfg, payload.email, payload.subject, layout(cfg, body), payload.body.replace(/<[^>]+>/g, ""));
 }
 
@@ -234,11 +252,38 @@ export async function sendWelcomeEmail(user: { email: string; name: string }, sm
     `Welcome to ${cfg.fromName}, ${user.name}! Activate your free Internship Package and start earning.`);
 }
 
+/* ─── Deposit Initiated ──────────────────────────────────────────────────── */
+
+export async function sendDepositInitiatedEmail(
+  user: { email: string; name: string },
+  data: { amount: number; phone: string; ticketNumber: string },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const time = new Date().toLocaleString("en-KE", { timeZone: "Africa/Nairobi" });
+  const rows = [
+    row("Amount", fmt(data.amount), true),
+    row("M-Pesa Number", data.phone),
+    row("Status", "⏳ Awaiting confirmation"),
+    row("Initiated At", time),
+  ].join("");
+  const body = `
+    ${hi(user.name)}
+    ${hero("📲", `M-Pesa Prompt Sent`)}
+    ${para("An M-Pesa STK push has been sent to your phone. Please check your phone and enter your M-Pesa PIN to complete the deposit.")}
+    ${table(rows)}
+    ${ticketBadge(data.ticketNumber)}
+    ${tip("If you don't see the M-Pesa prompt within 30 seconds, check that your phone has signal and try again.")}
+    ${hr()}${note("Save your ticket reference above for any disputes or support queries.")}`;
+  return send(cfg, user.email, `📲 M-Pesa Prompt Sent — ${fmt(data.amount)} deposit pending`, layout(cfg, body),
+    `An M-Pesa prompt for ${fmt(data.amount)} has been sent to ${data.phone}. Please enter your PIN to complete the deposit. Ticket: ${data.ticketNumber}`);
+}
+
 /* ─── Deposit Confirmed ──────────────────────────────────────────────────── */
 
 export async function sendDepositConfirmedEmail(
   user: { email: string; name: string },
-  data: { amount: number; newBalance: number; reference?: string | null; method?: string },
+  data: { amount: number; newBalance: number; reference?: string | null; method?: string; ticketNumber?: string },
   smtpConfig?: SmtpConfig,
 ): Promise<EmailResult> {
   const cfg = smtpConfig ?? getDefaultSmtpConfig();
@@ -246,7 +291,7 @@ export async function sendDepositConfirmedEmail(
   const rows = [
     row("Amount Deposited", fmt(data.amount), true),
     row("Method", data.method ?? "M-Pesa"),
-    ...(data.reference ? [row("Reference", data.reference)] : []),
+    ...(data.reference ? [row("M-Pesa Reference", data.reference)] : []),
     row("New Wallet Balance", fmt(data.newBalance), true),
     row("Time", time),
   ].join("");
@@ -255,10 +300,39 @@ export async function sendDepositConfirmedEmail(
     ${hero("💰", `${fmt(data.amount)} Deposit Received`)}
     ${para("Your M-Pesa deposit has been received and credited to your Zenti wallet instantly.")}
     ${table(rows)}
+    ${data.ticketNumber ? ticketBadge(data.ticketNumber) : ""}
     ${para("Ready to invest? Browse our plans and start earning daily returns.")}
-    ${cta("💼 Browse Investment Plans")}${hr()}${note("If you did not make this deposit, contact support immediately.")}`;
+    ${cta("💼 Browse Investment Plans")}${hr()}${note("If you did not make this deposit, ${supportLink()} immediately.")}`;
   return send(cfg, user.email, `💰 Deposit Confirmed — ${fmt(data.amount)} credited to your wallet`, layout(cfg, body),
-    `Your deposit of ${fmt(data.amount)} is confirmed. New balance: ${fmt(data.newBalance)}.`);
+    `Your deposit of ${fmt(data.amount)} is confirmed. New balance: ${fmt(data.newBalance)}.${data.ticketNumber ? ` Ticket: ${data.ticketNumber}` : ""}`);
+}
+
+/* ─── Deposit Failed ──────────────────────────────────────────────────── */
+
+export async function sendDepositFailedEmail(
+  user: { email: string; name: string },
+  data: { amount: number; phone: string; ticketNumber: string; reason?: string },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const time = new Date().toLocaleString("en-KE", { timeZone: "Africa/Nairobi" });
+  const rows = [
+    row("Amount", fmt(data.amount), true),
+    row("M-Pesa Number", data.phone),
+    row("Status", `❌ Failed${data.reason ? ` — ${data.reason}` : ""}`),
+    row("Time", time),
+  ].join("");
+  const body = `
+    ${hi(user.name)}
+    ${hero("❌", "Deposit Not Completed", "#fef2f2", "#7f1d1d")}
+    ${para("Unfortunately, your M-Pesa deposit could not be completed. No money has been deducted from your M-Pesa.")}
+    ${table(rows)}
+    ${ticketBadge(data.ticketNumber)}
+    ${alert("Common reasons: M-Pesa PIN cancelled, insufficient M-Pesa balance, or network timeout. Please try again.")}
+    ${cta("🔄 Try Again")}
+    ${hr()}${note(`If money was deducted but not credited, ${supportLink()} with your ticket reference.`)}`;
+  return send(cfg, user.email, `❌ Deposit Failed — ${fmt(data.amount)} not processed`, layout(cfg, body),
+    `Your deposit of ${fmt(data.amount)} failed. No money was deducted. Please try again. Ticket: ${data.ticketNumber}`);
 }
 
 /* ─── Package Activated (Investment Started) — with full claiming warning ── */
@@ -273,6 +347,7 @@ export async function sendPackageActivatedEmail(
     expectedTotal: number;
     completesAt: Date;
     durationDays: number;
+    ticketNumber?: string;
   },
   smtpConfig?: SmtpConfig,
 ): Promise<EmailResult> {
@@ -329,6 +404,7 @@ export async function sendPackageActivatedEmail(
     ${hero("🚀", `${data.planName} — Activated!`)}
     ${para(`Your investment plan is now live and earning daily. Here are your plan details:`)}
     ${table(rows)}
+    ${data.ticketNumber ? ticketBadge(data.ticketNumber) : ""}
     ${claimingRules}
     ${steps}
     ${cta("✅ Claim My Earnings Now")}
@@ -364,7 +440,7 @@ export async function sendInternshipActivatedEmail(
 
 export async function sendInvestmentStartedEmail(
   user: { email: string; name: string },
-  data: { planName: string; amountInvested: number; dailyEarning: number; expectedTotal: number; completesAt: Date; durationDays?: number },
+  data: { planName: string; amountInvested: number; dailyEarning: number; expectedTotal: number; completesAt: Date; durationDays?: number; ticketNumber?: string },
   smtpConfig?: SmtpConfig,
 ): Promise<EmailResult> {
   return sendPackageActivatedEmail(user, {
@@ -375,6 +451,7 @@ export async function sendInvestmentStartedEmail(
     expectedTotal: data.expectedTotal,
     completesAt: data.completesAt,
     durationDays: data.durationDays ?? 0,
+    ticketNumber: data.ticketNumber,
   }, smtpConfig);
 }
 
@@ -422,250 +499,159 @@ export async function sendDailyEarningEmail(
     ${para(`Your ${label.toLowerCase()} has been credited to your wallet.`)}
     ${table(rows)}
     ${para("Keep your investment active and watch your earnings grow day after day. 🚀")}
-    ${cta("🏦 View My Wallet")}${hr()}${note("You receive this daily update while your investment is active.")}`;
-  return send(cfg, user.email, `💸 ${label}: ${fmt(data.earned)} credited to your wallet`, layout(cfg, body),
-    `${label}: ${fmt(data.earned)} credited. New balance: ${fmt(data.newBalance)}.`);
-}
-
-/* ─── Investment Completed ───────────────────────────────────────────────── */
-
-export async function sendInvestmentCompletedEmail(
-  user: { email: string; name: string },
-  data: { totalEarned: number; newBalance: number; isInternship?: boolean; planName?: string },
-  smtpConfig?: SmtpConfig,
-): Promise<EmailResult> {
-  const cfg = smtpConfig ?? getDefaultSmtpConfig();
-  const label = data.isInternship ? "Internship Package" : `${data.planName ?? "Investment"} Plan`;
-  const rows = [
-    row("Plan Completed", `<strong>${label}</strong>`),
-    row("Total Earned", fmt(data.totalEarned), true),
-    row("Current Balance", fmt(data.newBalance), true),
-    row("Status", '<span style="color:#16a34a;font-weight:700;">✅ Completed</span>'),
-  ].join("");
-  const reinvestTip = data.isInternship
-    ? tip(`<strong>Great start!</strong> Your balance is ready. Invest it in a premium plan and multiply your earnings every single day!`)
-    : para("Your wallet is loaded and ready. Reinvest now to keep your money working for you!");
-  const withdrawNote = data.isInternship
-    ? `<div style="background:#fef9c3;border:1px solid #fde047;border-radius:10px;padding:14px 18px;margin:16px 0;"><p style="margin:0;color:#713f12;font-size:14px;font-weight:700;">🔒 Your KES 200 is Locked</p><p style="margin:6px 0 0;color:#92400e;font-size:13px;line-height:1.6;">Internship earnings are locked until you purchase a Premium Plan with a real M-Pesa deposit. Once your paid plan matures, your full balance (including this KES 200) will be available for withdrawal.</p></div>`
-    : `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px 18px;margin:16px 0;"><p style="margin:0;color:#14532d;font-size:14px;font-weight:700;">💰 Today is your withdrawal day!</p><p style="margin:6px 0 0;color:#166534;font-size:13px;line-height:1.6;">Since your plan has completed, today is the last day. You can now withdraw your earnings to M-Pesa, Airtel Money, or Bank.</p></div>`;
-  const body = `
-    ${hi(user.name)}
-    ${hero("🏆", data.isInternship ? "Internship Package Completed!" : "Congratulations — Investment Matured!")}
-    ${para(`Your <strong>${label}</strong> has fully matured! All earnings have been credited to your wallet.`)}
-    ${table(rows)}
-    ${withdrawNote}
-    ${reinvestTip}
-    ${cta(data.isInternship ? "🚀 Start a Premium Plan" : "💼 Reinvest Now")}${hr()}${note(data.isInternship ? "Purchase a Premium Plan to unlock your KES 200 and start withdrawing." : "Your earnings are in your wallet, available for withdrawal or reinvestment.")}`;
-  return send(cfg, user.email, `🏆 ${label} Completed — ${fmt(data.totalEarned)} Earned!`, layout(cfg, body),
-    data.isInternship
-      ? `Your ${label} has matured! Total earned: ${fmt(data.totalEarned)}. Your KES 200 is locked — buy a Premium Plan to unlock it.`
-      : `Your ${label} has matured! Total earned: ${fmt(data.totalEarned)}. New balance: ${fmt(data.newBalance)}. You can now withdraw your earnings.`);
+    ${cta("📊 View My Dashboard")}${hr()}${note("This earning was automatically credited as part of your active investment plan.")}`;
+  return send(cfg, user.email, `💸 +${fmt(data.earned)} Daily Return Credited`, layout(cfg, body),
+    `+${fmt(data.earned)} ${label.toLowerCase()} credited. New balance: ${fmt(data.newBalance)}.`);
 }
 
 /* ─── Withdrawal Requested ───────────────────────────────────────────────── */
 
 export async function sendWithdrawalRequestedEmail(
   user: { email: string; name: string },
-  data: { amount: number; fee: number; netAmount: number; method: string; account: string; feePercent: number },
+  data: { amount: number; fee: number; netAmount: number; method: string; account: string; feePercent: number; ticketNumber?: string },
   smtpConfig?: SmtpConfig,
 ): Promise<EmailResult> {
   const cfg = smtpConfig ?? getDefaultSmtpConfig();
   const time = new Date().toLocaleString("en-KE", { timeZone: "Africa/Nairobi" });
-  const methodLabel = data.method.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  const methodFmt = String(data.method).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   const rows = [
     row("Amount Requested", fmt(data.amount), true),
-    row(`Processing Fee (${data.feePercent}%)`, fmt(data.fee)),
+    row(`Processing Fee (${data.feePercent}%)`, `- ${fmt(data.fee)}`),
     row("You Will Receive", fmt(data.netAmount), true),
-    row("Method", methodLabel),
+    row("Payment Method", methodFmt),
     row("Account / Phone", data.account),
+    row("Status", "⏳ Under Review"),
     row("Submitted At", time),
-    row("Status", '<span style="color:#d97706;font-weight:700;">⏳ Under Review</span>'),
   ].join("");
   const body = `
     ${hi(user.name)}
-    ${hero("📤", "Withdrawal Request Submitted", "#fffbeb", "#92400e")}
-    ${para("Your withdrawal request has been received and is under review by our team. We'll notify you once it's processed.")}
+    ${hero("📤", "Withdrawal Request Received")}
+    ${para("Your withdrawal request has been submitted and is currently under review. You will receive a notification once it is processed.")}
     ${table(rows)}
-    ${cta("📋 View Transaction History")}${hr()}${note("If you did not request this withdrawal, contact support immediately.")}`;
+    ${data.ticketNumber ? ticketBadge(data.ticketNumber) : ""}
+    ${tip("Processing typically takes 1–24 hours. Keep your ticket reference for any queries.")}
+    ${hr()}${note(`If you did not request this withdrawal, ${supportLink()} immediately.`)}`;
   return send(cfg, user.email, `📤 Withdrawal Request — ${fmt(data.amount)} under review`, layout(cfg, body),
-    `Your withdrawal of ${fmt(data.amount)} via ${methodLabel} is under review. You will receive: ${fmt(data.netAmount)}.`);
+    `Your withdrawal of ${fmt(data.amount)} (net: ${fmt(data.netAmount)}) is under review.${data.ticketNumber ? ` Ticket: ${data.ticketNumber}` : ""}`);
 }
 
-/* ─── Withdrawal Approved ────────────────────────────────────────────────── */
+/* ─── Withdrawal Processed ───────────────────────────────────────────────── */
 
-export async function sendWithdrawalApprovedEmail(
+export async function sendWithdrawalProcessedEmail(
   user: { email: string; name: string },
-  data: { amount: number; method: string; account: string },
+  data: { amount: number; netAmount: number; method: string; account: string; status: "completed" | "rejected"; adminNote?: string; ticketNumber?: string },
   smtpConfig?: SmtpConfig,
 ): Promise<EmailResult> {
   const cfg = smtpConfig ?? getDefaultSmtpConfig();
   const time = new Date().toLocaleString("en-KE", { timeZone: "Africa/Nairobi" });
-  const methodLabel = data.method.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  const approved = data.status === "completed";
+  const methodFmt = String(data.method).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   const rows = [
     row("Amount", fmt(data.amount), true),
-    row("Method", methodLabel),
+    row("Net Paid Out", fmt(data.netAmount), true),
+    row("Method", methodFmt),
     row("Account / Phone", data.account),
-    row("Approved At", time),
-    row("Status", '<span style="color:#16a34a;font-weight:700;">✅ Approved & Processing</span>'),
+    row("Status", approved ? "✅ Processed" : "❌ Rejected"),
+    row("Processed At", time),
   ].join("");
   const body = `
     ${hi(user.name)}
-    ${hero("✅", "Withdrawal Approved!")}
-    ${para(`Great news! Your withdrawal of <strong>${fmt(data.amount)}</strong> has been <strong>approved</strong> and is being processed.`)}
+    ${hero(approved ? "✅" : "❌", approved ? "Withdrawal Processed!" : "Withdrawal Rejected", approved ? "#f0fdf4" : "#fef2f2", approved ? "#14532d" : "#7f1d1d")}
+    ${para(approved
+      ? `Your withdrawal of ${fmt(data.netAmount)} has been sent to your ${methodFmt} account (${data.account}).`
+      : `Your withdrawal request of ${fmt(data.amount)} was not approved.`)}
     ${table(rows)}
-    ${tip("M-Pesa transfers typically arrive within minutes. Bank transfers may take 1–3 business days.")}
-    ${cta("🏦 View My Wallet")}${hr()}${note("Thank you for using Zenti. We appreciate your trust.")}`;
-  return send(cfg, user.email, `✅ Withdrawal Approved — ${fmt(data.amount)} being processed`, layout(cfg, body),
-    `Your withdrawal of ${fmt(data.amount)} via ${methodLabel} has been approved and is being processed.`);
+    ${data.ticketNumber ? ticketBadge(data.ticketNumber) : ""}
+    ${data.adminNote ? alert(`Admin note: ${data.adminNote}`) : ""}
+    ${approved ? cta("📊 View My Dashboard") : `<p style="text-align:center;margin:16px 0;">${supportLink()} if you have questions about this decision.</p>`}
+    ${hr()}${note("You received this because your withdrawal request was reviewed.")}`;
+  return send(cfg, user.email,
+    approved ? `✅ Withdrawal of ${fmt(data.netAmount)} Processed` : `❌ Withdrawal Request Rejected`,
+    layout(cfg, body),
+    approved ? `Your withdrawal of ${fmt(data.netAmount)} has been processed.` : `Your withdrawal of ${fmt(data.amount)} was rejected.`);
 }
 
-/* ─── Account Banned (Auto-ban notification) ─────────────────────────────── */
+/* ─── Account Banned ─────────────────────────────────────────────────────── */
 
 export async function sendAccountBannedEmail(
   user: { email: string; name: string },
-  data: { reason: string; supportEmail: string; siteUrl: string },
+  data: { reason: string; supportEmail?: string; siteUrl?: string; ticketNumber?: string },
   smtpConfig?: SmtpConfig,
 ): Promise<EmailResult> {
   const cfg = smtpConfig ?? getDefaultSmtpConfig();
   const body = `
     ${hi(user.name)}
-    ${hero("🚫", "Your Account Has Been Suspended", "#fef2f2", "#991b1b")}
-    ${alert(`<strong>Your Zenti account has been suspended</strong> due to a violation of our Terms of Service.<br/><br/>
-      <strong>Reason:</strong> ${data.reason}`)}
-    ${para("Our automated fraud detection system identified activity that violates our platform rules. Violations include but are not limited to:")}
-    <ul style="margin:0 0 16px;padding-left:20px;color:#374151;font-size:14px;line-height:1.8;">
-      <li>Creating multiple accounts with the same phone number</li>
-      <li>Registering multiple accounts from the same device or network</li>
-      <li>Using automated tools or bots to create accounts</li>
-      <li>Providing false or misleading identity information</li>
-    </ul>
-    <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:14px;padding:20px 24px;margin:20px 0;">
-      <h3 style="margin:0 0 12px;color:#9a3412;font-size:15px;font-weight:800;">📬 How to Appeal This Decision</h3>
-      <p style="margin:0 0 10px;color:#7c2d12;font-size:14px;line-height:1.7;">If you believe this suspension was made in error, you may submit an appeal by emailing our support team. Include:</p>
-      <ul style="margin:0;padding-left:18px;color:#7c2d12;font-size:13px;line-height:1.8;">
-        <li>Your full name and registered email address</li>
-        <li>Your Kenyan phone number (07XX or 01XX format)</li>
-        <li>A brief explanation of why you believe the ban was in error</li>
-        <li>Any supporting information (e.g., proof of identity)</li>
-      </ul>
-      <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 0;"><tr><td align="center">
-        <a href="mailto:${data.supportEmail}?subject=Account%20Suspension%20Appeal&body=My%20name%3A%20${encodeURIComponent(user.name)}%0AMy%20email%3A%20${encodeURIComponent(user.email)}%0A%0AReason%20for%20appeal%3A%20" 
-           style="display:inline-block;background:#dc2626;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px;">
-          📧 Send Appeal to ${data.supportEmail}
-        </a>
-      </td></tr></table>
+    ${hero("🚫", "Account Suspended", "#fef2f2", "#7f1d1d")}
+    ${para("Your Zenti account has been suspended due to a violation of our Terms of Service.")}
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 18px;margin:16px 0;">
+      <p style="margin:0 0 4px;color:#7f1d1d;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Reason</p>
+      <p style="margin:0;color:#374151;font-size:14px;line-height:1.6;">${data.reason}</p>
     </div>
-    ${para("Appeals are reviewed within 24–48 business hours. If your appeal is successful, your account will be reinstated.")}
-    ${hr()}${note(`This is an automated message from the Zenti fraud detection system. Account ID: ${user.email}. Zenti — zenti.run.place`)}`;
-  return send(cfg, user.email, `🚫 Zenti Account Suspended — Action Required`, layout(cfg, body),
-    `Your Zenti account has been suspended.\nReason: ${data.reason}\n\nTo appeal, email: ${data.supportEmail}`);
+    ${data.ticketNumber ? ticketBadge(data.ticketNumber) : ""}
+    ${para("If you believe this is a mistake, you can submit an appeal. Our team reviews appeals within 48 hours.")}
+    ${cta("📋 Submit an Appeal", `${APP_URL}/support`)}
+    ${hr()}${note(`To appeal, log in at ${APP_URL} and you will see the appeal form. Alternatively, ${supportLink()}.`)}`;
+  return send(cfg, user.email, `🚫 Your ${cfg.fromName} Account Has Been Suspended`, layout(cfg, body),
+    `Your ${cfg.fromName} account has been suspended. Reason: ${data.reason}\n\nTo appeal, visit ${APP_URL}/support`);
 }
 
-/* ─── Referral Program Welcome (apply flow) ──────────────────────────────── */
+/* ─── Investment Completed ───────────────────────────────────────────────── */
 
-export async function sendReferralWelcomeEmail(
+export async function sendInvestmentCompletedEmail(
   user: { email: string; name: string },
-  data: { referralLink: string; referralCode: string },
-  smtpConfig?: SmtpConfig,
-): Promise<EmailResult> {
-  const cfg = smtpConfig ?? getDefaultSmtpConfig();
-  const body = `
-    ${hi(user.name)}
-    ${hero("🤝", "Welcome to the Zenti Referral Program!")}
-    ${para("You are now enrolled in the Zenti B2C Referral Program. Here is your unique invite link:")}
-    <div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:14px;padding:20px;text-align:center;margin:20px 0;">
-      <p style="margin:0 0 8px;color:#6b7280;font-size:12px;font-weight:600;">YOUR REFERRAL LINK</p>
-      <p style="margin:0 0 12px;color:#14532d;font-size:13px;word-break:break-all;font-family:'Courier New',monospace;">${data.referralLink}</p>
-      <p style="margin:0;color:#6b7280;font-size:12px;">Code: <strong style="color:#14532d;letter-spacing:2px;">${data.referralCode}</strong></p>
-    </div>
-    <h3 style="margin:24px 0 12px;color:#111827;font-size:15px;font-weight:700;">How the System Works (Auto-Credited — No Action Needed)</h3>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
-      <tr><td style="padding:10px 0;border-bottom:1px solid #d1fae5;">
-        <span style="font-size:18px;margin-right:10px;vertical-align:middle;">⚡</span>
-        <span style="color:#374151;font-size:14px;vertical-align:middle;"><strong>Instant Invitation Bonus:</strong> When your friend makes their first M-Pesa deposit, <strong>10% of that amount is automatically added to your Zenti balance</strong> — instantly, with no action from you.</span>
-      </td></tr>
-      <tr><td style="padding:10px 0;border-bottom:1px solid #d1fae5;">
-        <span style="font-size:18px;margin-right:10px;vertical-align:middle;">📅</span>
-        <span style="color:#374151;font-size:14px;vertical-align:middle;"><strong>Sunday Bonus:</strong> Every Sunday at 11:59 PM, our system automatically calculates and credits your referral bonus directly to your balance — <strong>no manual claiming required</strong>.</span>
-      </td></tr>
-      <tr><td style="padding:10px 0;">
-        <span style="font-size:18px;margin-right:10px;vertical-align:middle;">🏆</span>
-        <span style="color:#374151;font-size:14px;vertical-align:middle;"><strong>Elite Bonus (30%):</strong> Get 5 active investors within 10 days to unlock Elite. If you get more than 10 in your first week, you earn an extra 5–10% on top (Legend tier)!</span>
-      </td></tr>
-    </table>
-    ${warningBox("FRAUD WARNING — IMPORTANT: Our system automatically monitors all referral activity for fraud. Creating fake accounts, using bots, or manipulating the referral system will result in an <strong>immediate permanent ban</strong> and forfeiture of all bonuses. Both the referrer and the fake referees will be banned. Play fair and earn real bonuses!")}
-    <h3 style="margin:20px 0 12px;color:#111827;font-size:15px;font-weight:700;">Withdrawal of Referral Bonuses</h3>
-    ${para("Referral bonuses are credited directly to your Zenti wallet. There is <strong>no minimum withdrawal amount</strong> for referral bonuses. You can withdraw them on the last day of any active investment using M-Pesa or your configured payment method.")}
-    ${cta("🔗 Go to My Referrals")}
-    ${hr()}${note("You received this because you enrolled in the Zenti Referral Program.")}`;
-  return send(cfg, user.email, `🤝 You're Enrolled in the Zenti Referral Program — Your Link is Ready!`, layout(cfg, body),
-    `You're enrolled in the Zenti Referral Program.\n\nYour link: ${data.referralLink}\nYour code: ${data.referralCode}\n\nShare your link — when friends invest, you earn automatically!`);
-}
-
-/* ─── Referral Enrollment (countdown started) ────────────────────────────── */
-
-export async function sendReferralEnrollmentEmail(
-  user: { email: string; name: string },
-  data: { referralLink: string; referralCode: string; deadlineDate: Date },
-  smtpConfig?: SmtpConfig,
-): Promise<EmailResult> {
-  const cfg = smtpConfig ?? getDefaultSmtpConfig();
-  const deadline = fmtDate(data.deadlineDate);
-  const body = `
-    ${hi(user.name)}
-    ${hero("⏳", "Your Elite Challenge Has Started!", "#fff7ed", "#9a3412")}
-    ${para("Congratulations! Your first active referral just joined. Your <strong>10-day Elite Challenge</strong> has officially started.")}
-    <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:14px;padding:18px 20px;margin:20px 0;text-align:center;">
-      <p style="margin:0 0 6px;color:#9a3412;font-size:13px;font-weight:600;">⏰ YOUR DEADLINE</p>
-      <p style="margin:0;color:#7c2d12;font-size:18px;font-weight:800;">${deadline}</p>
-      <p style="margin:8px 0 0;color:#9a3412;font-size:13px;">Get 4 more active investors before this date to unlock the <strong>30% Elite Sunday Bonus</strong>!</p>
-    </div>
-    ${para(`<strong>You need 4 more active investors</strong> (people who join via your link and make a real M-Pesa deposit) by ${deadline}. You currently have 1.`)}
-    <h3 style="margin:20px 0 10px;color:#111827;font-size:14px;font-weight:700;">🏆 Elite vs Standard Bonus:</h3>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;border-collapse:collapse;">
-      <tr style="background:#f0fdf4;">
-        <td style="padding:10px 12px;border:1px solid #d1fae5;font-weight:700;color:#14532d;font-size:14px;">Elite (5+ active in 10 days)</td>
-        <td style="padding:10px 12px;border:1px solid #d1fae5;font-weight:700;color:#14532d;font-size:14px;">30% every Sunday — forever</td>
-      </tr>
-      <tr>
-        <td style="padding:10px 12px;border:1px solid #d1fae5;color:#374151;font-size:14px;">Standard (missed deadline)</td>
-        <td style="padding:10px 12px;border:1px solid #d1fae5;color:#374151;font-size:14px;">5–10% every Sunday</td>
-      </tr>
-      <tr style="background:#fefce8;">
-        <td style="padding:10px 12px;border:1px solid #fde68a;font-weight:700;color:#92400e;font-size:14px;">🌟 Legend (10+ in first week!)</td>
-        <td style="padding:10px 12px;border:1px solid #fde68a;font-weight:700;color:#92400e;font-size:14px;">35–40% every Sunday — elite bonus!</td>
-      </tr>
-    </table>
-    <p style="margin:0 0 12px;color:#374151;font-size:14px;font-weight:600;">Your referral link:</p>
-    <div style="background:#f0fdf4;border:1px solid #d1fae5;border-radius:10px;padding:14px;font-family:'Courier New',monospace;font-size:12px;color:#14532d;word-break:break-all;margin-bottom:20px;">${data.referralLink}</div>
-    ${cta("🚀 Share My Link & Go Elite")}
-    ${hr()}${note("This is a system notification about your referral program status.")}`;
-  return send(cfg, user.email, `⏳ Elite Challenge Started — Get 4 More Investors by ${deadline}!`, layout(cfg, body),
-    `Your Elite Challenge has started! Get 4 more active investors by ${deadline} to unlock the 30% Elite Sunday Bonus.\n\nYour link: ${data.referralLink}`);
-}
-
-/* ─── Withdrawal Rejected ────────────────────────────────────────────────── */
-
-export async function sendWithdrawalRejectedEmail(
-  user: { email: string; name: string },
-  data: { amount: number; reason?: string | null },
+  data: { totalEarned: number; newBalance: number; isInternship?: boolean; planName?: string; ticketNumber?: string },
   smtpConfig?: SmtpConfig,
 ): Promise<EmailResult> {
   const cfg = smtpConfig ?? getDefaultSmtpConfig();
   const time = new Date().toLocaleString("en-KE", { timeZone: "Africa/Nairobi" });
   const rows = [
-    row("Amount Refunded", fmt(data.amount), true),
-    row("Rejected At", time),
-    row("Status", '<span style="color:#dc2626;font-weight:700;">❌ Rejected & Refunded</span>'),
+    row("Plan", data.planName ?? (data.isInternship ? "2-Day Internship Package" : "Investment Plan")),
+    row("Total Earned", fmt(data.totalEarned), true),
+    row("New Wallet Balance", fmt(data.newBalance), true),
+    row("Completed At", time),
   ].join("");
+
+  const internshipNote = data.isInternship ? `
+    ${warningBox("Your KES 200 internship earnings are locked in your wallet.\n\nTo unlock them and access withdrawals, you must purchase a Premium Plan with a real M-Pesa deposit.")}
+    ${cta("💼 Upgrade to Premium Now")}` : `
+    ${hero("🎉", "Withdrawal Window Open!", "#f0fdf4", "#14532d")}
+    ${para("Today is your withdrawal day. You can now withdraw your earnings from your wallet.")}
+    ${cta("💸 Withdraw My Earnings")}`;
+
   const body = `
     ${hi(user.name)}
-    ${hero("❌", "Withdrawal Rejected", "#fef2f2", "#991b1b")}
-    ${para(`Unfortunately, your withdrawal request was rejected. However, <strong>${fmt(data.amount)}</strong> has been <strong>refunded</strong> to your Zenti wallet immediately.`)}
-    ${data.reason ? alert(`<strong>Reason:</strong> ${data.reason}`) : ""}
+    ${hero("🏆", "Investment Complete — Congratulations!")}
+    ${para(`Your investment plan has matured and all earnings have been credited to your wallet.`)}
     ${table(rows)}
-    ${para("Your refunded balance is available immediately. Contact our support team if you have questions.")}
-    ${cta("📞 Contact Support")}${hr()}${note("Your funds are safe in your wallet and can be withdrawn again when eligible.")}`;
-  return send(cfg, user.email, `❌ Withdrawal Rejected — ${fmt(data.amount)} refunded to your wallet`, layout(cfg, body),
-    `Your withdrawal of ${fmt(data.amount)} was rejected and refunded.${data.reason ? ` Reason: ${data.reason}` : ""}`);
+    ${data.ticketNumber ? ticketBadge(data.ticketNumber) : ""}
+    ${internshipNote}
+    ${hr()}${note("Ready to earn more? Start a new investment plan today!")}`;
+
+  const subject = data.isInternship
+    ? `🎓 Internship Complete — Your earnings are locked, upgrade to unlock!`
+    : `🏆 Investment Complete — You can now withdraw your earnings!`;
+
+  return send(cfg, user.email, subject, layout(cfg, body),
+    `Your ${data.planName ?? "investment plan"} is complete! Total earned: ${fmt(data.totalEarned)}. New balance: ${fmt(data.newBalance)}.`);
+}
+
+/* ─── Dormancy Warning ───────────────────────────────────────────────────── */
+
+export async function sendDormancyWarningEmail(
+  user: { email: string; name: string },
+  data: { daysUntilClosure: number; ticketNumber?: string },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const body = `
+    ${hi(user.name)}
+    ${hero("😴", `Account Closing in ${data.daysUntilClosure} Days`, "#fff7ed", "#92400e")}
+    ${para(`Your Zenti account has been inactive since registration — no deposit or active investment has been made.`)}
+    ${warningBox(`Your account will be temporarily closed in <strong>${data.daysUntilClosure} day${data.daysUntilClosure !== 1 ? "s" : ""}</strong> unless you make a deposit or activate an investment plan.`)}
+    ${para("Don't lose your account! Make your first deposit and start earning daily returns.")}
+    ${data.ticketNumber ? ticketBadge(data.ticketNumber) : ""}
+    ${cta("💰 Make My First Deposit")}
+    ${hr()}${note("If you log in, your account will remain active. Your account is NOT deleted — it can always be reactivated.")}`;
+  return send(cfg, user.email, `⚠️ Your Zenti account will close in ${data.daysUntilClosure} days — take action now`, layout(cfg, body),
+    `Your Zenti account will be temporarily closed in ${data.daysUntilClosure} days. Log in or make a deposit to keep it active.`);
 }

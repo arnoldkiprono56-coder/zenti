@@ -10,10 +10,10 @@ import { apiUrl } from "@/lib/api-url";
 interface BannedScreenProps {
   email?: string;
   reason?: string;
-  supportEmail?: string;
 }
 
-export function BannedScreen({ email, reason, supportEmail = "support@zenti.run.place" }: BannedScreenProps) {
+export function BannedScreen({ email, reason }: BannedScreenProps) {
+  const supportUrl = "https://zenti-investment-kenya.vercel.app/support";
   const [showAppeal, setShowAppeal] = useState(false);
   const [appealEmail, setAppealEmail] = useState(email ?? "");
   const [message, setMessage] = useState("");
@@ -149,8 +149,8 @@ export function BannedScreen({ email, reason, supportEmail = "support@zenti.run.
             </Button>
             <p className="text-center text-xs text-muted-foreground">
               Need help?{" "}
-              <a href={`mailto:${supportEmail}`} className="text-primary hover:underline">
-                Contact {supportEmail}
+              <a href={supportUrl} className="text-primary hover:underline">
+                Open a support ticket
               </a>
             </p>
           </div>

@@ -32,6 +32,7 @@ import AdminRequests from "@/pages/admin/requests";
 import AdminSettings from "@/pages/admin/settings";
 import AdminWhatsApp from "@/pages/admin/whatsapp";
 import AdminNotifications from "@/pages/admin/notifications";
+import AdminAppeals from "@/pages/admin/appeals";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -75,6 +76,7 @@ function Router() {
       <Route path="/admin/settings" component={AdminSettings} />
       <Route path="/admin/whatsapp" component={AdminWhatsApp} />
       <Route path="/admin/notifications" component={AdminNotifications} />
+      <Route path="/admin/appeals" component={AdminAppeals} />
 
       <Route component={NotFound} />
     </Switch>

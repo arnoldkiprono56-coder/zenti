@@ -8,8 +8,9 @@ import {
   activityLogsTable,
   claimableEarningsTable,
 } from "@workspace/db";
-import { eq, and, lte, or, isNull, sql, lt } from "drizzle-orm";
+import { eq, and, lte, or, isNull, sql, lt, isNotNull, ne } from "drizzle-orm";
 import { runFraudSweep } from "../lib/auto-ban";
+import { createTicket } from "../lib/tickets";
 
 const router = Router();
 
@@ -32,13 +33,6 @@ function expiryTodayKE(): Date {
 
 /**
  * POST /api/cron/process-returns
- *
- * Creates claimable daily earnings for all active investments.
- * Users MUST log in and claim by 11:59 PM Kenya time or earnings expire and are lost.
- * On the final day of an investment, earnings are auto-credited and the plan is marked complete.
- * Also expires unclaimed earnings from previous days.
- *
- * Protected by CRON_SECRET env var (Vercel passes as Authorization: Bearer <CRON_SECRET>).
  */
 router.all("/process-returns", async (req: Request, res: Response) => {
   const cronSecret = process.env["CRON_SECRET"];
@@ -84,6 +78,8 @@ router.all("/process-returns", async (req: Request, res: Response) => {
     );
 
   if (dueInvestments.length === 0) {
+    // Still run dormancy check even if no investments
+    runDormancyCheck().catch(console.error);
     res.json({ processed: 0, completed: 0, message: "No investments due for crediting" });
     return;
   }
@@ -113,25 +109,21 @@ router.all("/process-returns", async (req: Request, res: Response) => {
         .where(eq(investmentsTable.id, inv.id));
 
       if (isComplete) {
-        // Determine if this is an internship investment
         const [completedPlan] = await db
           .select({ isInternship: plansTable.isInternship, name: plansTable.name })
           .from(plansTable).where(eq(plansTable.id, inv.planId)).limit(1);
         const isInternshipPlan = completedPlan?.isInternship ?? false;
 
-        // Final day: auto-credit earnings and mark complete
         await db
           .update(usersTable)
           .set({
             balance: sql`${usersTable.balance} + ${dailyEarning}`,
             totalEarned: sql`${usersTable.totalEarned} + ${dailyEarning}`,
-            // Internship earnings are locked until last day of a real paid investment
             ...(isInternshipPlan ? { lockedBalance: sql`${usersTable.lockedBalance} + ${dailyEarning}` } : {}),
             updatedAt: now,
           })
           .where(eq(usersTable.id, inv.userId));
 
-        // Auto-claim any pending claimable for this investment
         await db
           .update(claimableEarningsTable)
           .set({ claimed: true, claimedAt: now })
@@ -159,7 +151,6 @@ router.all("/process-returns", async (req: Request, res: Response) => {
           ipAddress: "cron",
         });
 
-        // Completion WhatsApp notification
         (async () => {
           try {
             const { sendMessage } = await import("../lib/whatsapp");
@@ -188,7 +179,6 @@ router.all("/process-returns", async (req: Request, res: Response) => {
           } catch { /* silent */ }
         })();
 
-        // Completion email
         (async () => {
           try {
             const { sendInvestmentCompletedEmail } = await import("../lib/email");
@@ -210,7 +200,6 @@ router.all("/process-returns", async (req: Request, res: Response) => {
 
         completed++;
       } else {
-        // Non-final day: create claimable earning (user must claim by 11:59 PM)
         const existing = await db
           .select({ id: claimableEarningsTable.id })
           .from(claimableEarningsTable)
@@ -240,7 +229,6 @@ router.all("/process-returns", async (req: Request, res: Response) => {
           ipAddress: "cron",
         });
 
-        // Notify user to claim
         (async () => {
           try {
             const { sendMessage } = await import("../lib/whatsapp");
@@ -257,7 +245,6 @@ router.all("/process-returns", async (req: Request, res: Response) => {
           } catch { /* silent */ }
         })();
 
-        // Claim reminder email
         (async () => {
           try {
             const { sendClaimReminderEmail } = await import("../lib/email");
@@ -279,33 +266,10 @@ router.all("/process-returns", async (req: Request, res: Response) => {
     }
   }
 
-  // Clean up unverified accounts older than 24 hours
-  (async () => {
-    try {
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const unverified = await db
-        .select({ id: usersTable.id, email: usersTable.email })
-        .from(usersTable)
-        .where(
-          and(
-            eq(usersTable.isVerified, false),
-            eq(usersTable.status, "active"),
-            sql`${usersTable.role} = 'user'`,
-            lt(usersTable.createdAt, twentyFourHoursAgo),
-          )
-        );
-      for (const u of unverified) {
-        await db.update(usersTable).set({ status: "suspended", updatedAt: new Date() }).where(eq(usersTable.id, u.id));
-      }
-      if (unverified.length > 0) {
-        console.log(`[Cron] Suspended ${unverified.length} unverified account(s) older than 24h`);
-      }
-    } catch (err) {
-      console.error("[Cron] Unverified cleanup failed:", err instanceof Error ? err.message : err);
-    }
-  })();
+  // Dormancy check runs in background
+  runDormancyCheck().catch(console.error);
 
-  // Run daily fraud sweep in background — doesn't block cron response
+  // Run daily fraud sweep in background
   (async () => {
     try {
       const sweep = await runFraudSweep();
@@ -330,5 +294,146 @@ router.all("/process-returns", async (req: Request, res: Response) => {
     timestamp: now.toISOString(),
   });
 });
+
+/**
+ * Dormancy logic (replaces the old 24-hour unverified suspension):
+ * - Users with no real M-Pesa deposit AND no active investment get a 14-day countdown
+ * - Day 7: warning email
+ * - Day 14: status → dormant
+ * - On login: dormancyStartedAt is reset (handled in auth route)
+ */
+async function runDormancyCheck(): Promise<void> {
+  try {
+    const now = new Date();
+
+    // Find all active regular users with no active investment and no completed deposit
+    const candidateUsers = await db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        fullName: usersTable.fullName,
+        phone: usersTable.phone,
+        createdAt: usersTable.createdAt,
+        dormancyStartedAt: usersTable.dormancyStartedAt,
+      })
+      .from(usersTable)
+      .where(
+        and(
+          eq(usersTable.status, "active"),
+          eq(usersTable.role, "user"),
+        )
+      );
+
+    for (const u of candidateUsers) {
+      // Check if user has any completed M-Pesa deposit
+      const [deposit] = await db
+        .select({ id: transactionsTable.id })
+        .from(transactionsTable)
+        .where(
+          and(
+            eq(transactionsTable.userId, u.id),
+            eq(transactionsTable.type, "deposit"),
+            eq(transactionsTable.status, "completed"),
+          )
+        )
+        .limit(1);
+
+      // Check if user has any active investment
+      const [activeInv] = await db
+        .select({ id: investmentsTable.id })
+        .from(investmentsTable)
+        .where(
+          and(
+            eq(investmentsTable.userId, u.id),
+            eq(investmentsTable.status, "active"),
+          )
+        )
+        .limit(1);
+
+      if (deposit || activeInv) {
+        // User is engaged — clear dormancy countdown if set
+        if (u.dormancyStartedAt) {
+          await db.update(usersTable)
+            .set({ dormancyStartedAt: null, updatedAt: now })
+            .where(eq(usersTable.id, u.id));
+        }
+        continue;
+      }
+
+      // User has no deposit and no active plan — start or continue dormancy countdown
+      if (!u.dormancyStartedAt) {
+        // Start the countdown from today
+        await db.update(usersTable)
+          .set({ dormancyStartedAt: now, updatedAt: now })
+          .where(eq(usersTable.id, u.id));
+        console.log(`[Dormancy] Started countdown for user #${u.id}`);
+        continue;
+      }
+
+      const daysSince = Math.floor((now.getTime() - u.dormancyStartedAt.getTime()) / (24 * 60 * 60 * 1000));
+
+      if (daysSince >= 14) {
+        // Close the account
+        await db.update(usersTable)
+          .set({ status: "dormant", updatedAt: now })
+          .where(eq(usersTable.id, u.id));
+
+        await db.insert(activityLogsTable).values({
+          userId: u.id,
+          userEmail: u.email,
+          action: "account_dormant",
+          details: `Account closed due to 14 days inactivity (no deposit, no investment)`,
+          ipAddress: "cron",
+        });
+
+        // Create dormancy ticket
+        const ticket = await createTicket({
+          type: "dormancy",
+          userId: u.id,
+          metadata: { reason: "14-day inactivity — no deposit or investment" },
+        });
+
+        (async () => {
+          try {
+            const { sendEmailNotification } = await import("../lib/email");
+            await sendEmailNotification({
+              email: u.email,
+              name: u.fullName,
+              subject: "Your Zenti account has been temporarily closed",
+              heading: "Account Temporarily Closed",
+              icon: "😴",
+              body: `Your account was temporarily closed due to 14 days of inactivity — no deposit or active investment was found.\n\nYour account is <strong>NOT deleted</strong>. Simply log in to reactivate it instantly and start your journey.`,
+              ticketNumber: ticket.ticketNumber,
+            });
+          } catch { /* silent */ }
+        })();
+
+        console.log(`[Dormancy] Closed account for user #${u.id} after ${daysSince} days`);
+
+      } else if (daysSince === 7) {
+        // Send 7-day warning
+        const ticket = await createTicket({
+          type: "dormancy",
+          userId: u.id,
+          metadata: { warning: "7-day dormancy warning", daysUntilClosure: 7 },
+        });
+
+        (async () => {
+          try {
+            const { sendDormancyWarningEmail } = await import("../lib/email");
+            await sendDormancyWarningEmail(
+              { email: u.email, name: u.fullName },
+              { daysUntilClosure: 7, ticketNumber: ticket.ticketNumber },
+            );
+          } catch { /* silent */ }
+        })();
+
+        console.log(`[Dormancy] Sent 7-day warning to user #${u.id}`);
+      }
+    }
+  } catch (err) {
+    console.error("[Dormancy] Check failed:", err instanceof Error ? err.message : err);
+  }
+}
 
 export default router;

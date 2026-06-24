@@ -136,7 +136,6 @@ export function Layout({ children, requireAuth = false, requireAdmin = false }: 
       <BannedScreen
         email={(user as any).email}
         reason={(user as any).bannedReason ?? undefined}
-        supportEmail="support@zenti.run.place"
       />
     );
   }

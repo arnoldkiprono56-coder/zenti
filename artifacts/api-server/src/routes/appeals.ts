@@ -157,7 +157,7 @@ router.post("/:id/resolve", requireAuth, requireAdmin as any, async (req: AuthRe
             subject: "Your Zenti Appeal Has Been Reviewed",
             heading: "Appeal Decision",
             icon: "ℹ️",
-            body: `After review, we were unable to reinstate your account at this time.\n\n${adminNote ? `Reason: ${adminNote}` : ""}\n\nIf you believe this is an error, contact support@zenti.run.place.`,
+            body: `After review, we were unable to reinstate your account at this time.\n\n${adminNote ? `Reason: ${adminNote}` : ""}\n\nIf you believe this is in error, please <a href="https://zenti-investment-kenya.vercel.app/support">open a support ticket</a>.`,
           });
         } catch { /* silent */ }
       })();

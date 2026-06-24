@@ -3,7 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const userRoleEnum = pgEnum("user_role", ["user", "admin", "superadmin"]);
-export const userStatusEnum = pgEnum("user_status", ["active", "suspended", "banned"]);
+export const userStatusEnum = pgEnum("user_status", ["active", "suspended", "banned", "dormant"]);
 export const referralStatusEnum = pgEnum("referral_status", ["none", "countdown", "elite", "standard"]);
 
 export const usersTable = pgTable("users", {
@@ -34,6 +34,7 @@ export const usersTable = pgTable("users", {
   lastLoginCountry: text("last_login_country"),
   bannedReason: text("banned_reason"),
   bannedAt: timestamp("banned_at"),
+  dormancyStartedAt: timestamp("dormancy_started_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
