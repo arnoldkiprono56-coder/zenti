@@ -42,6 +42,7 @@ async function buildVercel() {
       "pg-native",
       "oracledb",
       "mongodb-client-encryption",
+      "geoip-lite",
       "handlebars",
       "knex",
       "typeorm",

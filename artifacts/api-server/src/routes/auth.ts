@@ -8,7 +8,7 @@ import { eq, and, gt } from "drizzle-orm";
 import { signToken, requireAuth, AuthRequest } from "../middlewares/auth";
 import { generateReferralCode } from "./referrals";
 import { autoBanCheck, buildDeviceFingerprint } from "../lib/auto-ban";
-import { getCountryFromIp, isKenyaIp, countryName } from "../lib/geo";
+import { getCountryFromRequest, countryName } from "../lib/geo";
 import { isDisposableEmail } from "../lib/disposable-domains";
 
 const router = Router();
@@ -34,12 +34,10 @@ router.post("/register", async (req: Request, res: Response) => {
   }
 
   // ── Geo-block: Kenya-only registration ────────────────────────────
-  const regIpRaw = getClientIp(req);
-  if (!isKenyaIp(regIpRaw)) {
-    const country = getCountryFromIp(regIpRaw);
-    const countryLabel = country ? countryName(country) : "an unsupported country";
+  const regCountryDetected = await getCountryFromRequest(req);
+  if (regCountryDetected && regCountryDetected !== "KE") {
     res.status(403).json({
-      error: `Registration is only available in Kenya. Your connection appears to be from ${countryLabel}. If you are in Kenya, please disable any VPN or proxy and try again.`,
+      error: `Registration is only available in Kenya. Your connection appears to be from ${countryName(regCountryDetected)}. If you are in Kenya, please disable any VPN or proxy and try again.`,
       geoBlocked: true,
     });
     return;
@@ -103,7 +101,7 @@ router.post("/register", async (req: Request, res: Response) => {
 
   // Capture device fingerprint and registration IP
   const registrationIp = getClientIp(req);
-  const registrationCountry = getCountryFromIp(registrationIp) ?? "KE";
+  const registrationCountry = regCountryDetected ?? "KE";
   const deviceFingerprint = buildDeviceFingerprint(
     req.headers["user-agent"] ?? "",
     req.headers["accept-language"] ?? "",
@@ -210,7 +208,7 @@ router.post("/pre-login", async (req: Request, res: Response) => {
   // ── Country-change detection (non-admin only) ──────────────────────
   if (user.role === "user") {
     const loginIp = getClientIp(req);
-    const loginCountry = getCountryFromIp(loginIp);
+    const loginCountry = await getCountryFromRequest(req);
     const regCountry = user.registrationCountry ?? "KE";
 
     if (loginCountry && loginCountry !== regCountry) {
@@ -266,7 +264,7 @@ router.post("/login", async (req: Request, res: Response) => {
     return;
   }
   const loginIp = getClientIp(req);
-  const loginCountry = getCountryFromIp(loginIp) ?? user.registrationCountry ?? "KE";
+  const loginCountry = (await getCountryFromRequest(req)) ?? user.registrationCountry ?? "KE";
   const now = new Date();
 
   await db.update(usersTable).set({
