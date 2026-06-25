@@ -3,6 +3,9 @@ import { db } from "@workspace/db";
 import { usersTable, referralsTable, referralPayoutsTable, transactionsTable, investmentsTable, activityLogsTable } from "@workspace/db";
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
+import { logger } from "../lib/logger";
+
+const SITE_URL = process.env.FRONTEND_URL || process.env.APP_URL || "https://zenti-investment-kenya.vercel.app";
 
 const router = Router();
 
@@ -35,14 +38,17 @@ export async function updateReferrerTier(referrerId: number) {
     void (async () => {
       try {
         const { sendReferralEnrollmentEmail, getDefaultSmtpConfig } = await import("../lib/email");
-        const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || "";
-        const referralLink = `${baseUrl}/register?ref=${referrer.referralCode}`;
-        await sendReferralEnrollmentEmail(
+        const referralLink = `${SITE_URL}/register?ref=${referrer.referralCode}`;
+        const result = await sendReferralEnrollmentEmail(
           { email: referrer.email, name: referrer.fullName },
           { referralLink, referralCode: referrer.referralCode ?? "", deadlineDate: deadline },
           getDefaultSmtpConfig(),
         );
-      } catch { /* silent */ }
+        if (!result.ok) logger.error({ error: result.error, email: referrer.email }, "Referral enrollment email failed");
+        else logger.info({ email: referrer.email }, "Referral enrollment email sent");
+      } catch (err) {
+        logger.error({ err }, "Referral enrollment email threw an exception");
+      }
     })();
     return;
   }
@@ -105,8 +111,7 @@ router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
     isLegend = msElapsed <= 7 * 24 * 60 * 60 * 1000 && activeCount > 10;
   }
 
-  const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
-  const referralLink = `${baseUrl}/register?ref=${user.referralCode}`;
+  const referralLink = `${SITE_URL}/register?ref=${user.referralCode}`;
 
   res.json({
     referralCode: user.referralCode,
@@ -160,19 +165,22 @@ router.post("/apply", requireAuth, async (req: AuthRequest, res: Response) => {
     user.referralCode = code;
   }
 
-  const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get("host")}`;
-  const referralLink = `${baseUrl}/register?ref=${user.referralCode}`;
+  const referralLink = `${SITE_URL}/register?ref=${user.referralCode}`;
 
   // Send welcome-to-referral-program email
   void (async () => {
     try {
       const { sendReferralWelcomeEmail, getDefaultSmtpConfig } = await import("../lib/email");
-      await sendReferralWelcomeEmail(
+      const result = await sendReferralWelcomeEmail(
         { email: user.email, name: user.fullName },
         { referralLink, referralCode: user.referralCode ?? "" },
         getDefaultSmtpConfig(),
       );
-    } catch { /* silent */ }
+      if (!result.ok) logger.error({ error: result.error, email: user.email }, "Referral welcome email failed");
+      else logger.info({ email: user.email }, "Referral welcome email sent");
+    } catch (err) {
+      logger.error({ err, email: user.email }, "Referral welcome email threw an exception");
+    }
   })();
 
   await db.insert(activityLogsTable).values({

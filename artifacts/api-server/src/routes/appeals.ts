@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { banAppealsTable, usersTable, activityLogsTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -131,35 +132,43 @@ router.post("/:id/resolve", requireAuth, requireAdmin as any, async (req: AuthRe
 
     const [user] = await db.select({ email: usersTable.email, fullName: usersTable.fullName }).from(usersTable).where(eq(usersTable.id, appeal.userId)).limit(1);
     if (user) {
-      (async () => {
+      void (async () => {
         try {
           const { sendEmailNotification } = await import("../lib/email");
-          await sendEmailNotification({
+          const result = await sendEmailNotification({
             email: user.email,
             name: user.fullName,
-            subject: "Your Zenti Appeal Has Been Approved",
+            subject: "Your Zenti Appeal Has Been Approved ✅",
             heading: "Appeal Approved ✅",
             icon: "✅",
-            body: `Great news — your account has been reinstated. You can now log in and continue using Zenti.\n\n${adminNote ? `Admin note: ${adminNote}` : ""}`,
+            body: `Great news, <strong>${user.fullName}</strong> — your account has been reinstated. You can now log in and continue using Zenti.<br/><br/>${adminNote ? `<strong>Admin note:</strong> ${adminNote}` : ""}`,
           });
-        } catch { /* silent */ }
+          if (!result.ok) logger.error({ error: result.error, email: user.email }, "Appeal approval email failed");
+          else logger.info({ email: user.email }, "Appeal approval email sent");
+        } catch (err) {
+          logger.error({ err, email: user.email }, "Appeal approval email threw an exception");
+        }
       })();
     }
   } else {
     const [user] = await db.select({ email: usersTable.email, fullName: usersTable.fullName }).from(usersTable).where(eq(usersTable.id, appeal.userId)).limit(1);
     if (user) {
-      (async () => {
+      void (async () => {
         try {
           const { sendEmailNotification } = await import("../lib/email");
-          await sendEmailNotification({
+          const result = await sendEmailNotification({
             email: user.email,
             name: user.fullName,
             subject: "Your Zenti Appeal Has Been Reviewed",
             heading: "Appeal Decision",
             icon: "ℹ️",
-            body: `After review, we were unable to reinstate your account at this time.\n\n${adminNote ? `Reason: ${adminNote}` : ""}\n\nIf you believe this is in error, please <a href="https://zenti-investment-kenya.vercel.app/support">open a support ticket</a>.`,
+            body: `Hi <strong>${user.fullName}</strong>,<br/><br/>After review, we were unable to reinstate your account at this time.<br/><br/>${adminNote ? `<strong>Reason:</strong> ${adminNote}<br/><br/>` : ""}If you believe this is in error, please <a href="https://zenti-investment-kenya.vercel.app/support">open a support ticket</a>.`,
           });
-        } catch { /* silent */ }
+          if (!result.ok) logger.error({ error: result.error, email: user.email }, "Appeal rejection email failed");
+          else logger.info({ email: user.email }, "Appeal rejection email sent");
+        } catch (err) {
+          logger.error({ err, email: user.email }, "Appeal rejection email threw an exception");
+        }
       })();
     }
   }

@@ -82,5 +82,5 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-APP_URL = "https://zenti.run.place"
-FRONTEND_URL = "https://zenti.run.place"
+APP_URL = "https://zenti-investment-kenya.vercel.app"
+FRONTEND_URL = "https://zenti-investment-kenya.vercel.app"

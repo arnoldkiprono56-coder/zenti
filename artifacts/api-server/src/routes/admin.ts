@@ -9,6 +9,7 @@ import { requireAdmin, AuthRequest } from "../middlewares/auth";
 import { serializeUser } from "./auth";
 import { serializeTxn } from "./transactions";
 import { serializeInvestment } from "./investments";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -97,11 +98,15 @@ router.patch("/users/:id", requireAdmin, async (req: AuthRequest, res: Response)
       try {
         const banReason = notes ?? "Your account has been suspended by an administrator.";
         const { sendAccountBannedEmail } = await import("../lib/email");
-        await sendAccountBannedEmail(
+        const result = await sendAccountBannedEmail(
           { email: user.email, name: user.fullName },
           { reason: banReason, siteUrl: "https://zenti-investment-kenya.vercel.app" },
         );
-      } catch { /* silent */ }
+        if (!result.ok) logger.error({ error: result.error, email: user.email }, "Ban email failed to deliver");
+        else logger.info({ email: user.email }, "Ban email sent");
+      } catch (err) {
+        logger.error({ err, email: user.email }, "Ban email threw an exception");
+      }
     })();
   }
 
