@@ -80,14 +80,26 @@ async function saveAndSendOtp(
     : await getVerificationMethod();
 
   if (method === "email") {
-    if (!email) {
-      console.warn(`[OTP] Email method selected but no email provided for phone ${phone.slice(0, 4)}****`);
-      // Fall through to WhatsApp even if email method selected but no email given
+    let emailToUse = email;
+
+    // For password reset, look up the user's email from their phone if it wasn't supplied
+    if (!emailToUse && isPasswordReset) {
+      const [user] = await db
+        .select({ email: usersTable.email })
+        .from(usersTable)
+        .where(eq(usersTable.phone, phone))
+        .limit(1);
+      emailToUse = user?.email;
+    }
+
+    if (!emailToUse) {
+      console.warn(`[OTP] Email method selected but no email found for phone ${phone.slice(0, 4)}****`);
+      // Fall through to WhatsApp if no email can be determined
     } else {
       const smtpCfg = buildSmtpConfig(settings);
-      const result = await sendEmailOtp({ email, code, reason, name: userName }, smtpCfg);
+      const result = await sendEmailOtp({ email: emailToUse, code, reason, name: userName }, smtpCfg);
       if (!result.delivered) {
-        console.error(`[OTP] Email delivery failed for ${email}: ${result.error ?? "unknown"}`);
+        console.error(`[OTP] Email delivery failed for ${emailToUse}: ${result.error ?? "unknown"}`);
         return { code, channel: "email", delivered: false, error: result.error };
       }
       return { code, channel: "email", delivered: true };
