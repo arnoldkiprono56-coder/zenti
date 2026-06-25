@@ -274,3 +274,5 @@ function AppealsDashboard() {
     </div>
   );
 }
+
+export default AppealsDashboard;
