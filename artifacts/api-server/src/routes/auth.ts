@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { db } from "@workspace/db";
 import { usersTable, referralsTable, otpsTable } from "@workspace/db";
 import { activityLogsTable } from "@workspace/db";
@@ -10,6 +11,8 @@ import { generateReferralCode } from "./referrals";
 import { autoBanCheck, buildDeviceFingerprint } from "../lib/auto-ban";
 import { getCountryFromRequest, countryName } from "../lib/geo";
 import { isDisposableEmail } from "../lib/disposable-domains";
+import { sendPasswordResetEmail, getDefaultSmtpConfig } from "../lib/email";
+import { getConfig } from "../lib/config";
 
 const router = Router();
 
@@ -381,10 +384,51 @@ router.post("/verify-account", async (req: Request, res: Response) => {
 });
 
 // Forgot password: verify OTP then set new password
+/* ─── Forgot Password (send secure email link) ───────────────────────────── */
+router.post("/forgot-password", async (req: Request, res: Response) => {
+  const { email } = req.body as { email: string };
+  if (!email) {
+    res.status(400).json({ error: "Email address is required" });
+    return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email.toLowerCase().trim())).limit(1);
+
+  // Always return success to prevent email enumeration
+  if (!user) {
+    res.json({ ok: true, message: "If that email is registered, a reset link has been sent." });
+    return;
+  }
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+  await db.update(usersTable).set({ resetToken: token, resetTokenExpiry: expiry, updatedAt: new Date() }).where(eq(usersTable.id, user.id));
+
+  let frontendUrl = "https://zenti-investment-kenya.vercel.app";
+  try { frontendUrl = await getConfig("APP_URL") || frontendUrl; } catch {}
+  const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+
+  const settings = await db.select().from(platformSettingsTable).limit(1).then(r => r[0] ?? null);
+  const smtpCfg = getDefaultSmtpConfig(settings);
+  await sendPasswordResetEmail({ email: user.email, name: user.fullName }, { resetUrl }, smtpCfg);
+
+  await db.insert(activityLogsTable).values({
+    userId: user.id,
+    userEmail: user.email,
+    action: "password_reset_requested",
+    details: "Password reset link sent to email",
+    ipAddress: req.ip || "unknown",
+  });
+
+  res.json({ ok: true, message: "If that email is registered, a reset link has been sent." });
+});
+
+/* ─── Reset Password (via secure token from email link) ──────────────────── */
 router.post("/reset-password", async (req: Request, res: Response) => {
-  const { phone, code, newPassword } = req.body as { phone: string; code: string; newPassword: string };
-  if (!phone || !code || !newPassword) {
-    res.status(400).json({ error: "Phone, code, and new password are required" });
+  const { token, newPassword } = req.body as { token: string; newPassword: string };
+  if (!token || !newPassword) {
+    res.status(400).json({ error: "Token and new password are required" });
     return;
   }
   if (newPassword.length < 8) {
@@ -392,41 +436,31 @@ router.post("/reset-password", async (req: Request, res: Response) => {
     return;
   }
 
-  const normalizedPhone = phone.replace(/[\s\-]/g, "").replace(/^\+254/, "0").replace(/^254/, "0");
   const now = new Date();
-
-  const [otp] = await db
+  const [user] = await db
     .select()
-    .from(otpsTable)
+    .from(usersTable)
     .where(and(
-      eq(otpsTable.phone, normalizedPhone),
-      eq(otpsTable.code, code),
-      eq(otpsTable.used, false),
-      gt(otpsTable.expiresAt, now),
+      eq(usersTable.resetToken, token),
+      gt(usersTable.resetTokenExpiry!, now),
     ))
-    .orderBy(otpsTable.createdAt)
     .limit(1);
 
-  if (!otp) {
-    res.status(400).json({ error: "Invalid or expired code. Please request a new one." });
-    return;
-  }
-
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.phone, normalizedPhone)).limit(1);
   if (!user) {
-    res.status(404).json({ error: "No account found for this phone number" });
+    res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
     return;
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await db.update(otpsTable).set({ used: true }).where(eq(otpsTable.id, otp.id));
-  await db.update(usersTable).set({ passwordHash, updatedAt: new Date() }).where(eq(usersTable.id, user.id));
+  await db.update(usersTable)
+    .set({ passwordHash, resetToken: null, resetTokenExpiry: null, updatedAt: new Date() })
+    .where(eq(usersTable.id, user.id));
 
   await db.insert(activityLogsTable).values({
     userId: user.id,
     userEmail: user.email,
     action: "password_reset",
-    details: "Password reset via OTP",
+    details: "Password reset via email link",
     ipAddress: req.ip || "unknown",
   });
 

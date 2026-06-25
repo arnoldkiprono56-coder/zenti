@@ -655,3 +655,25 @@ export async function sendDormancyWarningEmail(
   return send(cfg, user.email, `⚠️ Your Zenti account will close in ${data.daysUntilClosure} days — take action now`, layout(cfg, body),
     `Your Zenti account will be temporarily closed in ${data.daysUntilClosure} days. Log in or make a deposit to keep it active.`);
 }
+
+/* ─── Password Reset ─────────────────────────────────────────────────────── */
+
+export async function sendPasswordResetEmail(
+  user: { email: string; name: string },
+  data: { resetUrl: string },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const body = `
+    ${hi(user.name)}
+    ${hero("🔐", "Password Reset Request", "#eff6ff", "#1e40af")}
+    ${para("We received a request to reset the password for your Zenti account. Click the button below to set a new password:")}
+    <div style="text-align:center;margin:28px 0;">
+      <a href="${data.resetUrl}" style="display:inline-block;background:#166534;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:600;">Reset My Password</a>
+    </div>
+    ${warningBox("This link expires in <strong>1 hour</strong>. If you did not request a password reset, you can safely ignore this email — your password will not change.")}
+    ${para(`Or copy this link into your browser:<br/><span style="font-size:12px;color:#6b7280;word-break:break-all;">${data.resetUrl}</span>`)}
+    ${hr()}${note("For security, never share this link with anyone. Zenti staff will never ask for it.")}`;
+  return send(cfg, user.email, "🔐 Reset your Zenti password", layout(cfg, body),
+    `Reset your Zenti password using this link (expires in 1 hour): ${data.resetUrl}`);
+}

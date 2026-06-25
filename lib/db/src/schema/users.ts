@@ -35,6 +35,8 @@ export const usersTable = pgTable("users", {
   bannedReason: text("banned_reason"),
   bannedAt: timestamp("banned_at"),
   dormancyStartedAt: timestamp("dormancy_started_at"),
+  resetToken: text("reset_token"),
+  resetTokenExpiry: timestamp("reset_token_expiry"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
