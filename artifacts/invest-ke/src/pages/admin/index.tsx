@@ -1,22 +1,53 @@
+import { useState } from "react";
 import { Layout } from "@/components/layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
 import { useAdminGetStats, useAdminGetTransactions } from "@workspace/api-client-react";
 import { formatKES, formatDate } from "@/lib/format";
+import { apiUrl } from "@/lib/api-url";
 import {
   Users, TrendingUp, DollarSign, AlertTriangle,
   ArrowDownToLine, ClipboardList, ShieldAlert,
   Settings, MessageSquare, Gift, Activity,
   CheckCircle2, Clock, BarChart3, MessageSquareMore, ShieldX,
+  Search, Ticket,
 } from "lucide-react";
+
+function getToken() { return localStorage.getItem("investke_token") ?? ""; }
 
 export default function AdminDashboard() {
   const { data: stats, isLoading } = useAdminGetStats();
   const { data: txns } = useAdminGetTransactions({ status: "pending" });
   const pendingTxns = Array.isArray(txns) ? txns.slice(0, 5) : [];
+
+  const [ticketQuery, setTicketQuery] = useState("");
+  const [ticketResult, setTicketResult] = useState<any>(null);
+  const [ticketError, setTicketError] = useState("");
+  const [ticketLoading, setTicketLoading] = useState(false);
+
+  async function lookupTicket() {
+    const q = ticketQuery.trim().toUpperCase();
+    if (!q) return;
+    setTicketLoading(true);
+    setTicketError("");
+    setTicketResult(null);
+    try {
+      const res = await fetch(apiUrl(`/api/admin/ticket/${encodeURIComponent(q)}`), {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const data = await res.json();
+      if (!res.ok) { setTicketError(data.error ?? "Ticket not found"); return; }
+      setTicketResult(data);
+    } catch {
+      setTicketError("Network error — could not reach server");
+    } finally {
+      setTicketLoading(false);
+    }
+  }
 
   return (
     <Layout requireAdmin>
@@ -170,6 +201,110 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Ticket Lookup */}
+        <Card className="mt-4">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Ticket className="h-4 w-4 text-primary" /> Ticket Lookup
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2">
+              <Input
+                placeholder="e.g. ZEN-DEP-20260625-00001"
+                value={ticketQuery}
+                onChange={e => setTicketQuery(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && lookupTicket()}
+                className="font-mono text-sm"
+              />
+              <Button onClick={lookupTicket} disabled={ticketLoading} className="shrink-0">
+                <Search className="h-4 w-4 mr-2" />
+                {ticketLoading ? "Searching…" : "Search"}
+              </Button>
+            </div>
+
+            {ticketError && (
+              <p className="text-sm text-destructive mt-3 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5" /> {ticketError}
+              </p>
+            )}
+
+            {ticketResult && (
+              <div className="mt-4 space-y-3">
+                {/* Ticket row */}
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border">
+                  <div className="flex items-center gap-2">
+                    <Ticket className="h-4 w-4 text-primary shrink-0" />
+                    <div>
+                      <p className="text-sm font-mono font-semibold">{ticketResult.ticket.ticketNumber}</p>
+                      <p className="text-xs text-muted-foreground capitalize">
+                        Type: <strong>{ticketResult.ticket.type}</strong> · Status: <strong>{ticketResult.ticket.status}</strong>
+                      </p>
+                      <p className="text-xs text-muted-foreground">{formatDate(ticketResult.ticket.createdAt)}</p>
+                    </div>
+                  </div>
+                  <Badge variant={ticketResult.ticket.status === "open" ? "default" : ticketResult.ticket.status === "resolved" ? "secondary" : "outline"} className="capitalize">
+                    {ticketResult.ticket.status}
+                  </Badge>
+                </div>
+
+                {/* User row */}
+                {ticketResult.user && (
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-blue-600 shrink-0" />
+                      <div>
+                        <p className="text-sm font-semibold">{ticketResult.user.fullName}</p>
+                        <p className="text-xs text-muted-foreground">{ticketResult.user.email} · {ticketResult.user.phone}</p>
+                      </div>
+                    </div>
+                    <Link href={`/admin/users`}>
+                      <Badge variant="outline" className="cursor-pointer hover:bg-primary hover:text-primary-foreground">
+                        User #{ticketResult.user.id}
+                      </Badge>
+                    </Link>
+                  </div>
+                )}
+
+                {/* Related transaction/investment row */}
+                {ticketResult.related && (
+                  <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+                    <p className="text-xs font-semibold text-green-700 dark:text-green-300 mb-1.5 uppercase tracking-wide">
+                      {ticketResult.ticket.type === "investment" ? "Investment" : "Transaction"}
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                      {ticketResult.related.amount !== undefined && (
+                        <>
+                          <span className="text-muted-foreground">Amount</span>
+                          <span className="font-semibold">{formatKES(ticketResult.related.amount)}</span>
+                        </>
+                      )}
+                      {ticketResult.related.status && (
+                        <>
+                          <span className="text-muted-foreground">Status</span>
+                          <span className="capitalize font-medium">{ticketResult.related.status}</span>
+                        </>
+                      )}
+                      {ticketResult.related.method && (
+                        <>
+                          <span className="text-muted-foreground">Method</span>
+                          <span className="capitalize">{String(ticketResult.related.method).replace(/_/g, " ")}</span>
+                        </>
+                      )}
+                      {ticketResult.related.createdAt && (
+                        <>
+                          <span className="text-muted-foreground">Date</span>
+                          <span>{formatDate(ticketResult.related.createdAt)}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </Layout>
   );

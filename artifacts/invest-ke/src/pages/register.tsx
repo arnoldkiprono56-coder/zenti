@@ -174,7 +174,7 @@ export default function Register() {
                       </div>
                     </FormControl>
                     <FormDescription>
-                      We'll send a WhatsApp verification code to this number.
+                      A verification code will be sent to confirm your number.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
