@@ -34,6 +34,8 @@ export default function AdminSettings() {
     maxActiveInvestments: 5,
     withdrawalCooldownHours: 24,
     minDepositHoldingHours: 24,
+    payheroAuthToken: "",
+    payheroChannelId: "",
   });
 
   const [configEntries, setConfigEntries] = useState<ConfigEntry[]>([]);
@@ -55,6 +57,8 @@ export default function AdminSettings() {
         maxActiveInvestments: (settings as any).maxActiveInvestments ?? 5,
         withdrawalCooldownHours: (settings as any).withdrawalCooldownHours ?? 24,
         minDepositHoldingHours: (settings as any).minDepositHoldingHours ?? 24,
+        payheroAuthToken: (settings as any).payheroAuthToken ?? "",
+        payheroChannelId: (settings as any).payheroChannelId ?? "",
       });
     }
   }, [settings]);
@@ -242,6 +246,41 @@ export default function AdminSettings() {
                   onChange={e => setForm(f => ({ ...f, maxActiveInvestments: parseInt(e.target.value) || 1 }))}
                 />
                 <p className="text-xs text-muted-foreground">Maximum number of concurrent active investments per user</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* PayHero M-Pesa */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-emerald-600" />
+                PayHero M-Pesa Integration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1">
+                <Label>Auth Token (Base64 clientId:clientSecret)</Label>
+                <Input
+                  type="password"
+                  placeholder="Paste your PayHero auth token"
+                  value={form.payheroAuthToken}
+                  onChange={e => setForm(f => ({ ...f, payheroAuthToken: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">From your PayHero dashboard → API credentials. Format: <code className="font-mono">base64(clientId:clientSecret)</code></p>
+              </div>
+              <div className="space-y-1">
+                <Label>Channel ID</Label>
+                <Input
+                  placeholder="e.g. 1234"
+                  value={form.payheroChannelId}
+                  onChange={e => setForm(f => ({ ...f, payheroChannelId: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">Numeric channel ID from your PayHero M-Pesa channel settings</p>
+              </div>
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
+                <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>These values are saved to the database and used for M-Pesa STK push. If <code className="font-mono">PAYHERO_AUTH_TOKEN</code> or <code className="font-mono">PAYHERO_CHANNEL_ID</code> environment variables are set on the server, they take priority.</span>
               </div>
             </CardContent>
           </Card>

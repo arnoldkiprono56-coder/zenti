@@ -367,6 +367,31 @@ async function runDormancyCheck(): Promise<void> {
           .set({ dormancyStartedAt: now, updatedAt: now })
           .where(eq(usersTable.id, u.id));
         console.log(`[Dormancy] Started countdown for user #${u.id}`);
+        // Send day-0 countdown start email
+        (async () => {
+          try {
+            const { sendEmailNotification } = await import("../lib/email");
+            await sendEmailNotification({
+              email: u.email,
+              name: u.fullName,
+              subject: "Action Required: Your Zenti account will close in 14 days",
+              heading: "Account Activity Required",
+              icon: "⏰",
+              body: `<p>Hi <strong>${u.fullName}</strong>,</p>
+<p>We noticed you haven't made a deposit or started an investment on Zenti yet.</p>
+<p>Your account will be <strong>temporarily closed in 14 days</strong> if no activity is recorded.</p>
+<div style="background:#fff7ed;border:2px solid #fb923c;border-radius:12px;padding:18px 20px;margin:18px 0;">
+  <p style="margin:0 0 10px;font-weight:700;color:#9a3412;">To keep your account active, simply:</p>
+  <ul style="margin:0;padding-left:20px;color:#7c2d12;">
+    <li>Make your first M-Pesa deposit and activate an investment plan, <strong>OR</strong></li>
+    <li>Activate the free 2-Day Internship Package (no deposit needed)</li>
+  </ul>
+</div>
+<p>Your account is <strong>NOT deleted</strong> — you can reactivate it instantly at any time by logging in.</p>
+<p>Log in now to get started: <a href="https://zenti-investment-kenya.vercel.app" style="color:#16a34a;font-weight:700;">zenti-investment-kenya.vercel.app</a></p>`,
+            });
+          } catch { /* silent */ }
+        })();
         continue;
       }
 

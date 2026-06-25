@@ -27,6 +27,8 @@ export const platformSettingsTable = pgTable("platform_settings", {
   maintenanceBannerMessage: text("maintenance_banner_message").notNull().default("We are performing scheduled maintenance. We'll be back shortly."),
   maintenanceEta: text("maintenance_eta"),
   configKeys: jsonb("config_keys").$type<Record<string, string>>().notNull().default({}),
+  payheroAuthToken: text("payhero_auth_token"),
+  payheroChannelId: text("payhero_channel_id"),
 });
 
 export const insertPlatformSettingsSchema = createInsertSchema(platformSettingsTable).omit({ id: true });

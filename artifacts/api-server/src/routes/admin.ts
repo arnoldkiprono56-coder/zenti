@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { db } from "@workspace/db";
 import {
   usersTable, transactionsTable, investmentsTable,
-  activityLogsTable, fraudFlagsTable, platformSettingsTable, supportRequestsTable
+  activityLogsTable, fraudFlagsTable, platformSettingsTable, supportRequestsTable, ticketsTable
 } from "@workspace/db";
 import { eq, ilike, or, sql } from "drizzle-orm";
 import { requireAdmin, AuthRequest } from "../middlewares/auth";
@@ -90,6 +90,21 @@ router.patch("/users/:id", requireAdmin, async (req: AuthRequest, res: Response)
     details: `Admin updated user ${id}: status=${status ?? "unchanged"} role=${role ?? "unchanged"}`,
     ipAddress: req.ip || "unknown",
   });
+
+  // Send ban email if admin just banned this account
+  if (status === "banned" && user?.email) {
+    void (async () => {
+      try {
+        const banReason = notes ?? "Your account has been suspended by an administrator.";
+        const { sendAccountBannedEmail } = await import("../lib/email");
+        await sendAccountBannedEmail(
+          { email: user.email, name: user.fullName },
+          { reason: banReason, siteUrl: "https://zenti-investment-kenya.vercel.app" },
+        );
+      } catch { /* silent */ }
+    })();
+  }
+
   res.json(serializeUser(user));
 });
 
@@ -278,6 +293,38 @@ router.get("/logs", requireAdmin, async (req: AuthRequest, res: Response) => {
 
 // ── Fraud flags ───────────────────────────────────────────────────────────────
 
+// ── Ticket lookup ─────────────────────────────────────────────────────────────
+
+router.get("/ticket/:ticketNumber", requireAdmin, async (req: AuthRequest, res: Response) => {
+  const { ticketNumber } = req.params;
+  const [ticket] = await db
+    .select()
+    .from(ticketsTable)
+    .where(eq(ticketsTable.ticketNumber, ticketNumber))
+    .limit(1);
+  if (!ticket) { res.status(404).json({ error: "Ticket not found" }); return; }
+
+  let related: Record<string, unknown> | null = null;
+  if (ticket.relatedId) {
+    if (ticket.type === "deposit" || ticket.type === "withdrawal") {
+      const [txn] = await db.select().from(transactionsTable).where(eq(transactionsTable.id, ticket.relatedId)).limit(1);
+      if (txn) related = serializeTxn(txn);
+    } else if (ticket.type === "investment") {
+      const [inv] = await db.select().from(investmentsTable).where(eq(investmentsTable.id, ticket.relatedId)).limit(1);
+      if (inv) related = serializeInvestment(inv);
+    }
+  }
+
+  let user: Record<string, unknown> | null = null;
+  if (ticket.userId) {
+    const [u] = await db.select({ id: usersTable.id, fullName: usersTable.fullName, email: usersTable.email, phone: usersTable.phone, status: usersTable.status })
+      .from(usersTable).where(eq(usersTable.id, ticket.userId)).limit(1);
+    if (u) user = u;
+  }
+
+  res.json({ ticket, related, user });
+});
+
 router.get("/fraud-flags", requireAdmin, async (_req, res: Response) => {
   const flags = await db
     .select()
@@ -355,6 +402,7 @@ router.patch("/settings", requireAdmin, async (req: AuthRequest, res: Response) 
     withdrawalFeePercent, dailyWithdrawalLimitKES, maxActiveInvestments,
     withdrawalCooldownHours, minDepositHoldingHours,
     maintenanceBannerMessage, maintenanceEta,
+    payheroAuthToken, payheroChannelId,
   } = req.body;
   let [existing] = await db.select().from(platformSettingsTable).limit(1);
   if (!existing) {
@@ -383,6 +431,8 @@ router.patch("/settings", requireAdmin, async (req: AuthRequest, res: Response) 
   if (minDepositHoldingHours !== undefined) updates.minDepositHoldingHours = Number(minDepositHoldingHours);
   if (maintenanceBannerMessage !== undefined) updates.maintenanceBannerMessage = maintenanceBannerMessage;
   if (maintenanceEta !== undefined) updates.maintenanceEta = maintenanceEta || null;
+  if (payheroAuthToken !== undefined) updates.payheroAuthToken = payheroAuthToken || null;
+  if (payheroChannelId !== undefined) updates.payheroChannelId = payheroChannelId || null;
   const [updated] = await db.update(platformSettingsTable).set(updates).where(eq(platformSettingsTable.id, existing.id)).returning();
   // Invalidate the cached maintenance status so the new value takes effect immediately
   const { invalidateMaintenanceCache } = await import("../middlewares/maintenance");

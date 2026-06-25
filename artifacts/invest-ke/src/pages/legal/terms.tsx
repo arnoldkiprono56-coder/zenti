@@ -12,7 +12,7 @@ export default function Terms() {
         <div className="space-y-7 text-sm leading-7 text-muted-foreground">
 
           <Section title="1. Acceptance of Terms">
-            <p>By creating an account on Zenti ("Platform", "we", "us") at <strong>zenti.run.place</strong> and using our services, you ("User") agree to be bound by these Terms of Service. If you do not agree, do not use the Platform. We reserve the right to update these Terms; continued use constitutes acceptance of any changes.</p>
+            <p>By creating an account on Zenti ("Platform", "we", "us") at <strong>zenti-investment-kenya.vercel.app</strong> and using our services, you ("User") agree to be bound by these Terms of Service. If you do not agree, do not use the Platform. We reserve the right to update these Terms; continued use constitutes acceptance of any changes.</p>
           </Section>
 
           <Section title="2. Eligibility">
@@ -98,7 +98,7 @@ export default function Terms() {
             </p>
             <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-blue-800 font-medium">📬 How to Appeal a Suspension</p>
-              <p className="text-blue-700 mt-1">If you believe your account was suspended in error, you may submit an appeal to <a href="mailto:support@zenti.run.place" className="underline font-medium">support@zenti.run.place</a>. Include your full name, registered email, phone number, and a brief explanation. Appeals are reviewed within 24–48 business hours. Accounts confirmed to be fraudulent will not be reinstated.</p>
+              <p className="text-blue-700 mt-1">If you believe your account was suspended in error, you may submit an appeal via <a href="/support" className="underline font-medium">our support page</a>. Include your full name, registered email, phone number, and a brief explanation. Appeals are reviewed within 24–48 business hours. Accounts confirmed to be fraudulent will not be reinstated.</p>
             </div>
           </Section>
 
@@ -115,7 +115,7 @@ export default function Terms() {
           </Section>
 
           <Section title="14. Contact">
-            <p>Questions about these Terms? Contact our support team via your account dashboard or email <a href="mailto:support@zenti.run.place" className="text-primary underline">support@zenti.run.place</a>.</p>
+            <p>Questions about these Terms? Contact our support team via <a href="/support" className="text-primary underline">our support page</a>.</p>
           </Section>
         </div>
       </div>

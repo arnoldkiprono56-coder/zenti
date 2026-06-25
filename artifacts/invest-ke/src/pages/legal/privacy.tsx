@@ -12,7 +12,7 @@ export default function Privacy() {
         <div className="space-y-7 text-sm leading-7 text-muted-foreground">
 
           <Section title="1. Introduction">
-            <p>Zenti ("we", "us", "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, store, and protect your personal data when you use our platform at <strong>zenti.run.place</strong>. By using Zenti, you consent to the practices described here. This policy complies with Kenya's Data Protection Act, 2019.</p>
+            <p>Zenti ("we", "us", "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, store, and protect your personal data when you use our platform at <strong>zenti-investment-kenya.vercel.app</strong>. By using Zenti, you consent to the practices described here. This policy complies with Kenya's Data Protection Act, 2019.</p>
           </Section>
 
           <Section title="2. Information We Collect">
@@ -107,7 +107,7 @@ export default function Privacy() {
               <li><strong>Withdraw Consent:</strong> Withdraw consent for non-essential communications at any time.</li>
               <li><strong>Complaint:</strong> Lodge a complaint with the Office of the Data Protection Commissioner of Kenya.</li>
             </ul>
-            <p className="mt-3">To exercise these rights, contact us at <a href="mailto:support@zenti.run.place" className="text-primary underline">support@zenti.run.place</a>.</p>
+            <p className="mt-3">To exercise these rights, contact us via <a href="/support" className="text-primary underline">our support page</a>.</p>
           </Section>
 
           <Section title="10. Cookies &amp; Analytics">
@@ -126,8 +126,8 @@ export default function Privacy() {
             <p>Zenti is the data controller for all personal data processed through this platform.</p>
             <div className="mt-2 p-3 bg-muted/50 rounded-lg">
               <p className="font-medium text-foreground">Zenti Investment Platform</p>
-              <p>Email: <a href="mailto:support@zenti.run.place" className="text-primary underline">support@zenti.run.place</a></p>
-              <p>Website: <a href="https://zenti.run.place" className="text-primary underline">zenti.run.place</a></p>
+              <p>Support: <a href="/support" className="text-primary underline">support page</a></p>
+              <p>Website: <a href="https://zenti-investment-kenya.vercel.app" className="text-primary underline">zenti-investment-kenya.vercel.app</a></p>
               <p>Location: Nairobi, Kenya</p>
             </div>
           </Section>

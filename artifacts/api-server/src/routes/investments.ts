@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { db } from "@workspace/db";
-import { investmentsTable, plansTable, usersTable, transactionsTable, activityLogsTable, referralsTable } from "@workspace/db";
+import { investmentsTable, plansTable, usersTable, transactionsTable, activityLogsTable, referralsTable, ticketsTable } from "@workspace/db";
+import { createTicket } from "../lib/tickets";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
 import { serializePlan } from "./plans";
@@ -79,7 +80,15 @@ router.post("/internship", requireAuth, async (req: AuthRequest, res: Response) 
     details: `User activated internship package`,
     ipAddress: req.ip || "unknown",
   });
-  res.status(201).json(serializeInvestment(investment, internshipPlan));
+  // Create investment ticket
+  const internshipTicket = await createTicket({
+    type: "investment",
+    userId: req.userId!,
+    relatedId: investment.id,
+    metadata: { planName: "2-Day Internship Package", isInternship: true },
+  });
+
+  res.status(201).json({ ...serializeInvestment(investment, internshipPlan), ticketNumber: internshipTicket.ticketNumber });
 
   // Fire-and-forget WhatsApp notification with claiming warning
   (async () => {
@@ -90,7 +99,8 @@ router.post("/internship", requireAuth, async (req: AuthRequest, res: Response) 
         `🎓 *Internship Package Activated — Zenti*\n\nHi ${user.fullName},\n\nYour 2-day Internship Package is now active!\n\n` +
         `💵 *Fixed Earning:* KES ${fixedEarning.toLocaleString("en-KE", { minimumFractionDigits: 2 })}\n` +
         `📅 *Daily Earning:* KES ${dailyEarning.toLocaleString("en-KE", { minimumFractionDigits: 2 })}\n` +
-        `🗓 *Completes:* ${matures}\n\n` +
+        `🗓 *Completes:* ${matures}\n` +
+        `🎫 *Ticket:* ${internshipTicket.ticketNumber}\n\n` +
         `⚠️ *IMPORTANT — Daily Claiming Required:*\n` +
         `You MUST log in and claim your daily earnings every day by *11:59 PM*. Unclaimed earnings are permanently lost at midnight!\n\n` +
         `💰 *Withdrawal Rule:* You can only withdraw your earnings on the LAST DAY of your active investment.\n\n` +
@@ -113,6 +123,7 @@ router.post("/internship", requireAuth, async (req: AuthRequest, res: Response) 
           expectedTotal: fixedEarning,
           completesAt,
           durationDays: 2,
+          ticketNumber: internshipTicket.ticketNumber,
         },
       );
     } catch { /* silent */ }
@@ -186,7 +197,15 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
     await updateReferrerTier(referral[0].referrerId);
   }
 
-  res.status(201).json(serializeInvestment(investment, plan));
+  // Create investment ticket
+  const premiumTicket = await createTicket({
+    type: "investment",
+    userId: req.userId!,
+    relatedId: investment.id,
+    metadata: { planName: plan.name, amountInvested: amount },
+  });
+
+  res.status(201).json({ ...serializeInvestment(investment, plan), ticketNumber: premiumTicket.ticketNumber });
 
   // Fire-and-forget WhatsApp notification with claiming warning
   (async () => {
@@ -202,7 +221,8 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
         `💵 *Invested:* KES ${amtFmt}\n` +
         `📅 *Daily Earning:* KES ${dailyFmt}\n` +
         `🎯 *Expected Total:* KES ${totalFmt}\n` +
-        `🗓 *Matures:* ${matures}\n\n` +
+        `🗓 *Matures:* ${matures}\n` +
+        `🎫 *Ticket:* ${premiumTicket.ticketNumber}\n\n` +
         `⚠️ *IMPORTANT — Daily Claiming Required:*\n` +
         `You MUST log in and claim your daily earnings every day by *11:59 PM*. Unclaimed earnings are permanently lost at midnight!\n\n` +
         `💰 *Withdrawal Rule:* Withdrawals are ONLY available on the LAST DAY (${matures}) of your investment.\n\n` +
@@ -225,6 +245,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
           expectedTotal,
           completesAt,
           durationDays: plan.durationDays,
+          ticketNumber: premiumTicket.ticketNumber,
         },
       );
     } catch { /* silent */ }
