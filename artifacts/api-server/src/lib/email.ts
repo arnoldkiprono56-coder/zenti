@@ -48,7 +48,7 @@ export function getDefaultSmtpConfig(settings?: {
   supportEmail?: string | null;
 } | null): SmtpConfig {
   const user = process.env["SMTP_USER"] ?? "";
-  const pass = process.env["SMTP_PASS"] ?? "";
+  const pass = (process.env["SMTP_PASS"] ?? "").replace(/\s/g, "");
   return {
     host: settings?.smtpHost ?? "smtp.gmail.com",
     port: parseInt(settings?.smtpPort ?? "587", 10) || 587,
@@ -87,13 +87,19 @@ function buildTransporter(cfg: SmtpConfig) {
 }
 
 async function send(cfg: SmtpConfig, to: string, subject: string, html: string, text: string): Promise<EmailResult> {
-  if (!cfg.user || !cfg.pass) return { ok: false, delivered: false, error: "SMTP credentials not configured" };
+  if (!cfg.user || !cfg.pass) {
+    console.error("[Email] SMTP credentials not configured — SMTP_USER or SMTP_PASS missing");
+    return { ok: false, delivered: false, error: "SMTP credentials not configured" };
+  }
   if (!to) return { ok: false, delivered: false, error: "Recipient email is required" };
   try {
     await buildTransporter(cfg).sendMail({ from: `"${cfg.fromName}" <${cfg.fromEmail}>`, to, subject, html, text });
+    console.info(`[Email] Delivered "${subject}" → ${to}`);
     return { ok: true, delivered: true };
   } catch (err) {
-    return { ok: false, delivered: false, error: err instanceof Error ? err.message : "Email send failed" };
+    const msg = err instanceof Error ? err.message : "Email send failed";
+    console.error(`[Email] Failed to deliver "${subject}" → ${to}: ${msg}`);
+    return { ok: false, delivered: false, error: msg };
   }
 }
 
