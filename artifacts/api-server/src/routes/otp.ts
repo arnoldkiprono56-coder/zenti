@@ -50,7 +50,7 @@ async function getVerificationMethod(): Promise<{
 
 function buildSmtpConfig(settings: any) {
   const user = process.env["SMTP_USER"] ?? "";
-  const pass = process.env["SMTP_PASS"] ?? "";
+  const pass = (process.env["SMTP_PASS"] ?? "").replace(/\s/g, "");
   return {
     host: settings?.smtpHost ?? "smtp.gmail.com",
     port: parseInt(settings?.smtpPort ?? "587", 10) || 587,
