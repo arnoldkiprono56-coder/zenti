@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash", "postgresql-16"]
+modules = ["nodejs-20", "web", "bash"]
 
 [deployment]
 router = "application"
@@ -82,5 +82,5 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-APP_URL = "https://zenti-investment-kenya.vercel.app"
-FRONTEND_URL = "https://zenti-investment-kenya.vercel.app"
+APP_URL = "https://96f6a1e2-da13-4db3-887e-3657395b4283-00-jo6mdzzjq46r.kirk.replit.dev"
+FRONTEND_URL = "https://96f6a1e2-da13-4db3-887e-3657395b4283-00-jo6mdzzjq46r.kirk.replit.dev"
