@@ -113,6 +113,54 @@ router.patch("/users/:id", requireAdmin, async (req: AuthRequest, res: Response)
   res.json(serializeUser(user));
 });
 
+// ── Balance Adjustment ────────────────────────────────────────────────────────
+
+router.post("/users/:id/balance-adjustment", requireAdmin, async (req: AuthRequest, res: Response) => {
+  const userId = parseInt(String(req.params["id"]));
+  const { amount, type, note } = req.body as { amount: unknown; type: unknown; note: unknown };
+
+  if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    res.status(400).json({ error: "Amount must be a positive number" }); return;
+  }
+  if (type !== "credit" && type !== "debit") {
+    res.status(400).json({ error: "Type must be 'credit' or 'debit'" }); return;
+  }
+  if (!note || String(note).trim().length < 5) {
+    res.status(400).json({ error: "A note of at least 5 characters is required" }); return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  const adj = Number(amount);
+  const currentBalance = parseFloat(String(user.balance ?? "0"));
+  const newBalance = type === "credit" ? currentBalance + adj : currentBalance - adj;
+
+  if (newBalance < 0) {
+    res.status(400).json({ error: `Insufficient balance. Current balance is KES ${currentBalance.toFixed(2)}` }); return;
+  }
+
+  await db.update(usersTable).set({ balance: String(newBalance.toFixed(2)), updatedAt: new Date() }).where(eq(usersTable.id, userId));
+
+  await db.insert(transactionsTable).values({
+    userId,
+    type: type === "credit" ? "deposit" : "withdrawal",
+    amount: String(adj.toFixed(2)),
+    status: "completed",
+    notes: `[Admin manual ${type}] ${String(note).trim()} — by admin #${req.userId}`,
+  });
+
+  await db.insert(activityLogsTable).values({
+    userId: req.userId,
+    action: `admin_balance_${type}`,
+    details: `Admin manually ${type === "credit" ? "credited" : "debited"} KES ${adj.toFixed(2)} ${type === "credit" ? "to" : "from"} user #${userId}. Note: ${String(note).trim()}`,
+    ipAddress: req.ip || "unknown",
+  });
+
+  logger.info({ adminId: req.userId, userId, type, amount: adj, note }, `Manual balance ${type}`);
+  res.json({ ok: true, newBalance });
+});
+
 // ── Transactions ─────────────────────────────────────────────────────────────
 
 router.get("/transactions", requireAdmin, async (req: AuthRequest, res: Response) => {

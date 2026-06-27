@@ -24,9 +24,9 @@ export default function Terms() {
             <p>Zenti offers investment packages including a free 2-Day Internship Package for new users and premium paid plans. By investing you agree that:</p>
             <ul className="list-disc pl-5 space-y-1 mt-2">
               <li>Invested funds are deducted from your Zenti wallet upon plan activation.</li>
-              <li>Daily return rates and expected totals are displayed before you invest and are not guaranteed.</li>
+              <li>Daily return rates and expected totals are fixed and displayed before you invest.</li>
               <li>Minimum deposit amounts apply per plan as shown at the time of selection.</li>
-              <li>You only invest money you can afford to risk.</li>
+              <li>All plans have a defined duration, after which your principal and earnings become available for withdrawal.</li>
             </ul>
           </Section>
 
@@ -102,8 +102,8 @@ export default function Terms() {
             </div>
           </Section>
 
-          <Section title="11. Risk Disclosure">
-            <p>Investing carries risk. Zenti aims to deliver consistent returns, but past performance does not guarantee future results. Only invest money you can afford to lose. Zenti is not a licensed bank or regulated financial institution and is not covered by the Kenya Deposit Protection Fund.</p>
+          <Section title="11. Platform Disclosure">
+            <p>Zenti is a digital investment platform offering fixed daily returns to registered users. It is not a licensed bank or regulated financial institution under the Central Bank of Kenya Act and is not covered by the Kenya Deposit Protection Fund. All plan returns and durations are displayed transparently before you invest. Zenti processes all payments through licensed payment partners and operates in compliance with applicable Kenyan laws.</p>
           </Section>
 
           <Section title="12. Limitation of Liability">

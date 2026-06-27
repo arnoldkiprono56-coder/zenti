@@ -5,8 +5,10 @@ import {
   referralsTable,
   transactionsTable,
 } from "@workspace/db";
-import { eq, and, ne, gte, lt, sql, count, inArray } from "drizzle-orm";
+import { eq, and, ne, gte, lt, sql, count } from "drizzle-orm";
 import { isDisposableEmail } from "./disposable-domains";
+import { analyzeUserWithGemini } from "./gemini-fraud";
+import { logger } from "./logger";
 
 const SITE_URL = "https://zenti-investment-kenya.vercel.app";
 
@@ -158,6 +160,49 @@ export async function autoBanCheck(
   if (ip && ip !== "unknown" && ip !== "::1" && ip !== "127.0.0.1") {
     const r7 = await checkRegistrationClustering(newUserId, now, fingerprint);
     if (r7.banned) return r7;
+  }
+
+  /* ── Rule 8: Gemini AI analysis ──────────────────────────────────── */
+  try {
+    const [newUser] = await db
+      .select({ email: usersTable.email, phone: usersTable.phone, registrationIp: usersTable.registrationIp, deviceFingerprint: usersTable.deviceFingerprint, createdAt: usersTable.createdAt })
+      .from(usersTable).where(eq(usersTable.id, newUserId)).limit(1);
+
+    if (newUser) {
+      const aiResult = await analyzeUserWithGemini({
+        userId: newUserId,
+        email: newUser.email,
+        phone: newUser.phone,
+        registrationIp: newUser.registrationIp,
+        deviceFingerprint: newUser.deviceFingerprint,
+        registrationTimestamp: new Date(newUser.createdAt),
+        referredById,
+        accountAgeMinutes: Math.round((Date.now() - new Date(newUser.createdAt).getTime()) / 60000),
+        existingAccountsFromIp: 0,
+        existingAccountsFromDevice: 0,
+        hasDeposit: false,
+        depositCount: 0,
+        withdrawalCount: 0,
+        referralCount: 0,
+      });
+
+      if (aiResult.recommendation === "ban") {
+        const reason = `AI fraud detection: ${aiResult.reasons.join("; ")} (risk score: ${aiResult.riskScore}/100)`;
+        await banUser(newUserId, reason, ip);
+        return { banned: true, reason, accountsAffected: 1 };
+      }
+
+      if (aiResult.recommendation === "flag" || aiResult.riskScore >= 40) {
+        await db.insert(activityLogsTable).values({
+          userId: newUserId,
+          action: "ai_fraud_flag",
+          details: `Gemini AI flagged registration — risk score: ${aiResult.riskScore}/100. Reasons: ${aiResult.reasons.join("; ")}`,
+          ipAddress: ip,
+        });
+      }
+    }
+  } catch (err: unknown) {
+    logger.warn({ err, userId: newUserId }, "Gemini check in autoBanCheck threw — skipping");
   }
 
   return { banned: false };
@@ -369,6 +414,57 @@ export async function runFraudSweep(): Promise<{ checked: number; banned: number
     // Deposit-withdraw cycling
     const rC = await checkDepositWithdrawCycling(user.id);
     if (rC.banned) { banned++; continue; }
+
+    // Gemini AI analysis for accounts with suspicious profile (0 deposits + referrals, or flagged)
+    const [depCount] = await db
+      .select({ cnt: count() })
+      .from(transactionsTable)
+      .where(and(eq(transactionsTable.userId, user.id), eq(transactionsTable.type, "deposit"), eq(transactionsTable.status, "completed")));
+    const [refCount] = await db
+      .select({ cnt: count() })
+      .from(referralsTable)
+      .where(eq(referralsTable.referrerId, user.id));
+    const [wdCount] = await db
+      .select({ cnt: count() })
+      .from(transactionsTable)
+      .where(and(eq(transactionsTable.userId, user.id), eq(transactionsTable.type, "withdrawal")));
+
+    const deposits = Number(depCount?.cnt ?? 0);
+    const referrals = Number(refCount?.cnt ?? 0);
+    const withdrawals = Number(wdCount?.cnt ?? 0);
+    const isSuspicious = (referrals >= 3 && deposits === 0) || withdrawals > deposits + 2;
+
+    if (isSuspicious) {
+      try {
+        const aiResult = await analyzeUserWithGemini({
+          userId: user.id,
+          email: user.email,
+          phone: user.phone,
+          registrationIp: user.registrationIp,
+          deviceFingerprint: user.deviceFingerprint,
+          registrationTimestamp: new Date(),
+          hasDeposit: deposits > 0,
+          depositCount: deposits,
+          withdrawalCount: withdrawals,
+          referralCount: referrals,
+        });
+
+        if (aiResult.recommendation === "ban") {
+          const reason = `AI sweep fraud detection: ${aiResult.reasons.join("; ")} (risk score: ${aiResult.riskScore}/100)`;
+          await banUser(user.id, reason, "system-sweep-ai");
+          banned++;
+          continue;
+        }
+        if (aiResult.riskScore >= 50) {
+          await db.insert(activityLogsTable).values({
+            userId: user.id,
+            action: "ai_fraud_flag",
+            details: `Gemini sweep flag — risk ${aiResult.riskScore}/100: ${aiResult.reasons.join("; ")}`,
+            ipAddress: "system-sweep",
+          });
+        }
+      } catch { /* silent — sweep must not crash */ }
+    }
   }
 
   return { checked: candidates.length, banned };
