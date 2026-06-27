@@ -388,7 +388,7 @@ async function runDormancyCheck(): Promise<void> {
   </ul>
 </div>
 <p>Your account is <strong>NOT deleted</strong> — you can reactivate it instantly at any time by logging in.</p>
-<p>Log in now to get started: <a href="https://zenti-investment-kenya.vercel.app" style="color:#16a34a;font-weight:700;">zenti-investment-kenya.vercel.app</a></p>`,
+<p>Log in now to get started: <a href="${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}" style="color:#16a34a;font-weight:700;">${process.env.APP_URL || process.env.FRONTEND_URL || "Zenti"}</a></p>`,
             });
           } catch { /* silent */ }
         })();

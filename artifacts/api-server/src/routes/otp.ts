@@ -162,7 +162,7 @@ router.post("/send", async (req: Request, res: Response) => {
   if (!result.delivered) {
     res.status(503).json({
       error: result.channel === "email"
-        ? `We couldn't deliver the verification code to your email (${email ?? "unknown"}). Please check your email address or contact support at https://zenti-investment-kenya.vercel.app/support.`
+        ? `We couldn't deliver the verification code to your email (${email ?? "unknown"}). Please check your email address or contact support at ${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}/support.`
         : "We couldn't deliver the verification code via WhatsApp. Please try again or contact support.",
       detail: result.error,
     });
@@ -241,7 +241,7 @@ router.post("/send-withdrawal", requireAuth, async (req: AuthRequest, res: Respo
 
   if (!result.delivered) {
     res.status(503).json({
-      error: "We couldn't deliver the verification code. Please try again or contact https://zenti-investment-kenya.vercel.app/support.",
+      error: `We couldn't deliver the verification code. Please try again or contact ${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}/support.`,
       detail: result.error,
     });
     return;

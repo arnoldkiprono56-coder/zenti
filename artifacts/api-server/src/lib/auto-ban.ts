@@ -10,7 +10,7 @@ import { isDisposableEmail } from "./disposable-domains";
 import { analyzeUserWithGemini } from "./gemini-fraud";
 import { logger } from "./logger";
 
-const SITE_URL = "https://zenti-investment-kenya.vercel.app";
+const SITE_URL = process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app";
 
 export interface BanResult {
   banned: boolean;

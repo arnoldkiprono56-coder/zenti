@@ -13,7 +13,7 @@ interface BannedScreenProps {
 }
 
 export function BannedScreen({ email, reason }: BannedScreenProps) {
-  const supportUrl = "https://zenti-investment-kenya.vercel.app/support";
+  const supportUrl = `${window.location.origin}/support`;
   const [showAppeal, setShowAppeal] = useState(false);
   const [appealEmail, setAppealEmail] = useState(email ?? "");
   const [message, setMessage] = useState("");

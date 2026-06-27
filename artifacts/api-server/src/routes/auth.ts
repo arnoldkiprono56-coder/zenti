@@ -168,7 +168,7 @@ router.post("/register", async (req: Request, res: Response) => {
         `• Deposit via M-Pesa\n` +
         `• Choose an investment plan\n` +
         `• Earn daily returns\n\n` +
-        `📲 Log in at https://zenti-investment-kenya.vercel.app and start building your wealth! 🚀`
+        `📲 Log in at ${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"} and start building your wealth! 🚀`
       );
     } catch { /* silent */ }
   })();
@@ -198,7 +198,7 @@ router.post("/pre-login", async (req: Request, res: Response) => {
       error: "Your account has been suspended due to a violation of our Terms of Service.",
       banned: true,
       reason: user.bannedReason ?? "Account policy violation",
-      supportUrl: "https://zenti-investment-kenya.vercel.app/support",
+      supportUrl: `${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}/support`,
     });
     return;
   }
@@ -231,7 +231,7 @@ router.post("/pre-login", async (req: Request, res: Response) => {
           await sendAccountBannedEmail({ email: user.email, name: user.fullName }, { reason });
         } catch { /* silent */ }
       })();
-      res.status(403).json({ error: "Login blocked: your account has been locked due to a foreign login attempt.", banned: true, reason, supportUrl: "https://zenti-investment-kenya.vercel.app/support" });
+      res.status(403).json({ error: "Login blocked: your account has been locked due to a foreign login attempt.", banned: true, reason, supportUrl: `${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}/support` });
       return;
     }
   }
@@ -256,7 +256,7 @@ router.post("/login", async (req: Request, res: Response) => {
       error: "Your account has been suspended due to a violation of our Terms of Service.",
       banned: true,
       reason: user.bannedReason ?? "Account policy violation",
-      supportUrl: "https://zenti-investment-kenya.vercel.app/support",
+      supportUrl: `${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}/support`,
     });
     return;
   }
@@ -315,7 +315,7 @@ router.get("/me", requireAuth, async (req: AuthRequest, res: Response) => {
       error: "Your account has been suspended.",
       banned: true,
       reason: user.bannedReason ?? "Account policy violation",
-      supportUrl: "https://zenti-investment-kenya.vercel.app/support",
+      supportUrl: `${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}/support`,
     });
     return;
   }
@@ -405,7 +405,7 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
 
   await db.update(usersTable).set({ resetToken: token, resetTokenExpiry: expiry, updatedAt: new Date() }).where(eq(usersTable.id, user.id));
 
-  let frontendUrl = "https://zenti-investment-kenya.vercel.app";
+  let frontendUrl = process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app";
   try { frontendUrl = await getConfig("APP_URL") || frontendUrl; } catch {}
   const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 

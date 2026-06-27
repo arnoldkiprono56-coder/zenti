@@ -162,7 +162,7 @@ router.post("/:id/resolve", requireAuth, requireAdmin as any, async (req: AuthRe
             subject: "Your Zenti Appeal Has Been Reviewed",
             heading: "Appeal Decision",
             icon: "ℹ️",
-            body: `Hi <strong>${user.fullName}</strong>,<br/><br/>After review, we were unable to reinstate your account at this time.<br/><br/>${adminNote ? `<strong>Reason:</strong> ${adminNote}<br/><br/>` : ""}If you believe this is in error, please <a href="https://zenti-investment-kenya.vercel.app/support">open a support ticket</a>.`,
+            body: `Hi <strong>${user.fullName}</strong>,<br/><br/>After review, we were unable to reinstate your account at this time.<br/><br/>${adminNote ? `<strong>Reason:</strong> ${adminNote}<br/><br/>` : ""}If you believe this is in error, please <a href="${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}/support">open a support ticket</a>.`,
           });
           if (!result.ok) logger.error({ error: result.error, email: user.email }, "Appeal rejection email failed");
           else logger.info({ email: user.email }, "Appeal rejection email sent");

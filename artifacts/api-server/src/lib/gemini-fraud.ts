@@ -32,7 +32,7 @@ interface UserProfile {
 }
 
 const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
 const SYSTEM_PROMPT = `You are an AI fraud analyst for Zenti, a Kenyan mobile investment platform.
 Your job is to assess whether a user profile is fraudulent or suspicious.

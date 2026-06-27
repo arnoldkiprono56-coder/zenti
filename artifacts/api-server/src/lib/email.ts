@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 
-const APP_URL = "https://zenti-investment-kenya.vercel.app";
+const APP_URL = process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app";
 const SUPPORT_URL = `${APP_URL}/support`;
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */

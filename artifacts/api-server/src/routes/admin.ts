@@ -100,7 +100,7 @@ router.patch("/users/:id", requireAdmin, async (req: AuthRequest, res: Response)
         const { sendAccountBannedEmail } = await import("../lib/email");
         const result = await sendAccountBannedEmail(
           { email: user.email, name: user.fullName },
-          { reason: banReason, siteUrl: "https://zenti-investment-kenya.vercel.app" },
+          { reason: banReason, siteUrl: process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app" },
         );
         if (!result.ok) logger.error({ error: result.error, email: user.email }, "Ban email failed to deliver");
         else logger.info({ email: user.email }, "Ban email sent");

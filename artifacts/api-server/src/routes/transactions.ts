@@ -100,13 +100,19 @@ router.post("/deposit", requireAuth, async (req: AuthRequest, res: Response) => 
     .set({ notes: `Ticket: ${ticket.ticketNumber}` })
     .where(eq(transactionsTable.id, txn.id));
 
-  const proto =
-    (req.headers["x-forwarded-proto"] as string)?.split(",")[0]?.trim() ??
-    req.protocol;
-  const host =
-    (req.headers["x-forwarded-host"] as string)?.split(",")[0]?.trim() ??
-    req.get("host");
-  const callbackUrl = `${proto}://${host}/api/transactions/callback/payhero`;
+  const appBase =
+    process.env.APP_URL ||
+    process.env.FRONTEND_URL ||
+    (() => {
+      const proto =
+        (req.headers["x-forwarded-proto"] as string)?.split(",")[0]?.trim() ??
+        req.protocol;
+      const host =
+        (req.headers["x-forwarded-host"] as string)?.split(",")[0]?.trim() ??
+        req.get("host");
+      return `${proto}://${host}`;
+    })();
+  const callbackUrl = `${appBase.replace(/\/$/, "")}/api/transactions/callback/payhero`;
 
   const [user] = await db.select({ fullName: usersTable.fullName, email: usersTable.email, phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
 
