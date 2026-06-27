@@ -101,6 +101,7 @@ router.post("/deposit", requireAuth, async (req: AuthRequest, res: Response) => 
     .where(eq(transactionsTable.id, txn.id));
 
   const appBase =
+    (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null) ||
     process.env.APP_URL ||
     process.env.FRONTEND_URL ||
     (() => {
