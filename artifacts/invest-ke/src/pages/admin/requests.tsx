@@ -14,6 +14,7 @@ import {
   MessageSquare, ChevronDown, ChevronUp,
   CheckCircle2, Clock, AlertCircle, RefreshCw,
   Ban, UserX, KeyRound, Loader2, Copy, Phone, Mail, Reply,
+  Sparkles, Bot, XCircle, Send,
 } from "lucide-react";
 
 type Ticket = {
@@ -32,6 +33,14 @@ type Ticket = {
   updatedAt: string;
 };
 
+type AiSuggestion = {
+  reply: string;
+  shouldClose: boolean;
+  confidence: number;
+  needsHuman: boolean;
+  category: string;
+};
+
 const TABS = [
   { key: "all",         label: "All",         icon: MessageSquare },
   { key: "open",        label: "Open",        icon: AlertCircle },
@@ -46,9 +55,9 @@ const statusStyle: Record<string, { color: string; label: string }> = {
 };
 
 const priorityStyle: Record<string, { color: string; label: string }> = {
-  normal: { color: "bg-gray-100 text-gray-600 border-gray-200",   label: "Normal" },
+  normal: { color: "bg-gray-100 text-gray-600 border-gray-200",       label: "Normal" },
   high:   { color: "bg-orange-100 text-orange-700 border-orange-200", label: "High" },
-  urgent: { color: "bg-red-100 text-red-700 border-red-200",        label: "Urgent" },
+  urgent: { color: "bg-red-100 text-red-700 border-red-200",          label: "Urgent" },
 };
 
 const categoryLabels: Record<string, string> = {
@@ -58,9 +67,17 @@ const categoryLabels: Record<string, string> = {
   deposit_issue:    "Deposit Issue",
   technical:        "Technical",
   feature_request:  "Feature Request",
+  referral:         "Referral",
   general:          "General",
   other:            "Other",
 };
+
+function confidenceBadge(c: number) {
+  const pct = Math.round(c * 100);
+  if (pct >= 85) return <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">{pct}% confident</span>;
+  if (pct >= 65) return <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">{pct}% confident</span>;
+  return <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{pct}% confident</span>;
+}
 
 export default function AdminRequests() {
   const { toast } = useToast();
@@ -75,19 +92,24 @@ export default function AdminRequests() {
   const [resetResult, setResetResult] = useState<{ tempPassword: string; email: string } | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // AI suggest state
+  const [aiLoading, setAiLoading] = useState<number | null>(null);
+  const [aiSuggestion, setAiSuggestion] = useState<Record<number, AiSuggestion>>({});
+  const [aiSendLoading, setAiSendLoading] = useState<number | null>(null);
+
   const { data, isLoading } = useQuery<Ticket[]>({
     queryKey: ["admin-tickets", tab],
     queryFn: () =>
-      fetch(apiUrl(`/api/admin/requests${tab !== "all" ? `?status=${tab}` : ""}`), { headers }).then(r => r.json()),
+      fetch(apiUrl(`/api/support/admin/tickets${tab !== "all" ? `?status=${tab}` : ""}`), { headers }).then(r => r.json()),
   });
   const tickets = Array.isArray(data) ? data : [];
 
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) =>
-      fetch(apiUrl(`/api/admin/requests/${id}`), {
-        method: "PATCH",
+      fetch(apiUrl(`/api/support/admin/tickets/${id}/reply`), {
+        method: "POST",
         headers,
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ message: `Status updated to ${status}.`, resolve: status === "resolved" }),
       }).then(r => r.json()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-tickets"] });
@@ -96,25 +118,55 @@ export default function AdminRequests() {
     onError: () => toast({ title: "Error updating ticket", variant: "destructive" }),
   });
 
-  async function sendReply(ticket: Ticket) {
-    const reply = replyDraft[ticket.id]?.trim();
+  async function sendReply(ticket: Ticket, message?: string, resolve?: boolean) {
+    const reply = (message ?? replyDraft[ticket.id])?.trim();
     if (!reply) return;
     setReplyLoading(ticket.id);
     try {
-      const r = await fetch(apiUrl(`/api/admin/requests/${ticket.id}`), {
-        method: "PATCH",
+      const r = await fetch(apiUrl(`/api/support/admin/tickets/${ticket.id}/reply`), {
+        method: "POST",
         headers,
-        body: JSON.stringify({ adminReply: reply, status: ticket.status === "open" ? "in_progress" : ticket.status }),
+        body: JSON.stringify({ message: reply, resolve: resolve ?? false }),
       });
-      const json = await r.json();
+      const json = await r.json() as { error?: string };
       if (!r.ok) throw new Error(json.error);
       queryClient.invalidateQueries({ queryKey: ["admin-tickets"] });
       setReplyDraft(d => ({ ...d, [ticket.id]: "" }));
-      toast({ title: "Reply saved" });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      setAiSuggestion(s => { const next = { ...s }; delete next[ticket.id]; return next; });
+      toast({ title: resolve ? "✅ Ticket resolved & reply sent" : "Reply sent" });
+    } catch (e: unknown) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" });
     } finally {
       setReplyLoading(null);
+    }
+  }
+
+  async function fetchAiSuggestion(ticket: Ticket) {
+    setAiLoading(ticket.id);
+    try {
+      const r = await fetch(apiUrl(`/api/support/admin/tickets/${ticket.id}/ai-suggest`), {
+        method: "POST", headers,
+      });
+      const json = await r.json() as AiSuggestion & { error?: string };
+      if (!r.ok) throw new Error(json.error ?? "AI request failed");
+      if (!json.reply) throw new Error("No AI reply generated — API key may not be configured");
+      setAiSuggestion(s => ({ ...s, [ticket.id]: json }));
+      setReplyDraft(d => ({ ...d, [ticket.id]: json.reply }));
+    } catch (e: unknown) {
+      toast({ title: "AI suggestion failed", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setAiLoading(null);
+    }
+  }
+
+  async function sendAiReply(ticket: Ticket) {
+    const suggestion = aiSuggestion[ticket.id];
+    if (!suggestion) return;
+    setAiSendLoading(ticket.id);
+    try {
+      await sendReply(ticket, suggestion.reply, suggestion.shouldClose);
+    } finally {
+      setAiSendLoading(null);
     }
   }
 
@@ -124,21 +176,21 @@ export default function AdminRequests() {
     try {
       if (action === "reset") {
         const r = await fetch(apiUrl(`/api/admin/users/${userId}/reset-password`), { method: "POST", headers });
-        const json = await r.json();
+        const json = await r.json() as { tempPassword?: string; error?: string };
         if (!r.ok) throw new Error(json.error);
-        setResetResult(json);
+        setResetResult({ tempPassword: json.tempPassword ?? "", email });
       } else {
         const status = action === "ban" ? "banned" : "suspended";
         const r = await fetch(apiUrl(`/api/admin/users/${userId}`), {
           method: "PATCH", headers,
           body: JSON.stringify({ status }),
         });
-        const json = await r.json();
+        const json = await r.json() as { error?: string };
         if (!r.ok) throw new Error(json.error);
         toast({ title: `User ${status}`, description: `${email} has been ${status}.` });
       }
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Unknown error", variant: "destructive" });
     } finally {
       setActionLoading(null);
     }
@@ -151,7 +203,12 @@ export default function AdminRequests() {
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <MessageSquare className="h-5 w-5" /> Support Tickets
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">{tickets.length} ticket{tickets.length !== 1 ? "s" : ""}</p>
+          <p className="text-muted-foreground text-sm mt-1 flex items-center gap-2">
+            {tickets.length} ticket{tickets.length !== 1 ? "s" : ""}
+            <span className="flex items-center gap-1 text-primary text-xs font-medium bg-primary/10 px-2 py-0.5 rounded-full">
+              <Bot className="h-3 w-3" /> AI Auto-Reply Active
+            </span>
+          </p>
         </div>
 
         <div className="flex gap-2 mb-5 flex-wrap">
@@ -189,6 +246,8 @@ export default function AdminRequests() {
                   const isOpen = expanded === ticket.id;
                   const style = statusStyle[ticket.status] ?? statusStyle.open;
                   const pStyle = priorityStyle[ticket.priority] ?? priorityStyle.normal;
+                  const ai = aiSuggestion[ticket.id];
+
                   return (
                     <div key={ticket.id} className="py-4">
                       <button
@@ -249,31 +308,117 @@ export default function AdminRequests() {
                           {ticket.adminReply && (
                             <div className="bg-green-50/50 dark:bg-green-950/20 border border-green-200/50 rounded-lg p-4">
                               <p className="text-xs font-medium text-green-700 dark:text-green-400 mb-2 flex items-center gap-1">
-                                <Reply className="h-3 w-3" />ADMIN REPLY (saved)
+                                <Reply className="h-3 w-3" />
+                                {ticket.adminReply.startsWith("🤖") ? "AI REPLY (sent)" : "ADMIN REPLY (sent)"}
                               </p>
                               <p className="text-sm leading-relaxed whitespace-pre-wrap">{ticket.adminReply}</p>
                             </div>
                           )}
 
+                          {/* ── AI Suggestion Panel ─────────────────────────── */}
+                          {ai && (
+                            <div className="bg-primary/5 border-2 border-primary/20 rounded-xl p-4 space-y-3">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="bg-primary/10 p-1.5 rounded-lg">
+                                    <Bot className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <span className="text-sm font-semibold text-primary">AI Suggested Reply</span>
+                                  {confidenceBadge(ai.confidence)}
+                                  {ai.needsHuman && (
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">
+                                      Human review suggested
+                                    </span>
+                                  )}
+                                  {ai.shouldClose && (
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                                      Suggests close
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => setAiSuggestion(s => { const n = { ...s }; delete n[ticket.id]; return n; })}
+                                  className="text-muted-foreground hover:text-foreground"
+                                >
+                                  <XCircle className="h-4 w-4" />
+                                </button>
+                              </div>
+
+                              <div className="bg-background border rounded-lg p-3 text-sm whitespace-pre-wrap leading-relaxed">
+                                {ai.reply}
+                              </div>
+
+                              <div className="flex gap-2 flex-wrap">
+                                <Button
+                                  size="sm"
+                                  className="gap-1.5"
+                                  disabled={!!aiSendLoading}
+                                  onClick={() => sendAiReply(ticket)}
+                                >
+                                  {aiSendLoading === ticket.id
+                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    : <Send className="h-3.5 w-3.5" />}
+                                  {ai.shouldClose ? "Send & Close Ticket" : "Send AI Reply"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setReplyDraft(d => ({ ...d, [ticket.id]: ai.reply }))}
+                                >
+                                  Edit Before Sending
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Admin reply form */}
                           <div>
-                            <p className="text-xs font-medium text-muted-foreground mb-2">
-                              {ticket.adminReply ? "UPDATE REPLY" : "ADD REPLY / NOTES"}
-                            </p>
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-medium text-muted-foreground">
+                                {ticket.adminReply ? "SEND NEW REPLY" : "REPLY TO USER"}
+                              </p>
+                              {!ai && ticket.status !== "resolved" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/5"
+                                  disabled={aiLoading === ticket.id}
+                                  onClick={() => fetchAiSuggestion(ticket)}
+                                >
+                                  {aiLoading === ticket.id
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <Sparkles className="h-3 w-3" />}
+                                  {aiLoading === ticket.id ? "Generating…" : "AI Suggest"}
+                                </Button>
+                              )}
+                            </div>
                             <Textarea
                               rows={3}
-                              placeholder="Type your reply or internal notes here..."
-                              value={replyDraft[ticket.id] ?? (ticket.adminReply ?? "")}
+                              placeholder="Type your reply here, or use AI Suggest above..."
+                              value={replyDraft[ticket.id] ?? ""}
                               onChange={e => setReplyDraft(d => ({ ...d, [ticket.id]: e.target.value }))}
                             />
-                            <Button
-                              size="sm" className="mt-2 gap-1.5"
-                              disabled={replyLoading === ticket.id || !replyDraft[ticket.id]?.trim()}
-                              onClick={() => sendReply(ticket)}
-                            >
-                              {replyLoading === ticket.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Reply className="h-3.5 w-3.5" />}
-                              Save Reply
-                            </Button>
+                            <div className="flex gap-2 mt-2">
+                              <Button
+                                size="sm" className="gap-1.5"
+                                disabled={replyLoading === ticket.id || !replyDraft[ticket.id]?.trim()}
+                                onClick={() => sendReply(ticket)}
+                              >
+                                {replyLoading === ticket.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Reply className="h-3.5 w-3.5" />}
+                                Send Reply
+                              </Button>
+                              {ticket.status !== "resolved" && (
+                                <Button
+                                  size="sm" variant="outline"
+                                  className="gap-1.5 border-green-300 text-green-700 hover:bg-green-50"
+                                  disabled={replyLoading === ticket.id || !replyDraft[ticket.id]?.trim()}
+                                  onClick={() => sendReply(ticket, undefined, true)}
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Send & Close
+                                </Button>
+                              )}
+                            </div>
                           </div>
 
                           {/* Status Actions */}
