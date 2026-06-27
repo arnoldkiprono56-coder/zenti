@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
 import { Layout } from "@/components/layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -74,6 +75,35 @@ function useCountdown(secondsUntilExpiry: number) {
   return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
 }
 
+function useCountUp(target: number, duration = 1200) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    if (target === 0) { setValue(0); return; }
+    let start = 0;
+    const startTime = performance.now();
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(target * eased);
+      if (progress < 1) requestAnimationFrame(step);
+      else setValue(target);
+    };
+    requestAnimationFrame(step);
+  }, [target, duration]);
+  return value;
+}
+
+const containerVariants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.08 } },
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
+};
+
 export default function Dashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -90,6 +120,10 @@ export default function Dashboard() {
   const activeInvestments = investments.filter(i => i.status === "active");
   const recentTransactions = transactions.slice(0, 6);
   const countdown = useCountdown(claimable?.secondsUntilExpiry ?? 0);
+
+  const balanceDisplay = useCountUp(summary?.balance ?? 0);
+  const earnedDisplay = useCountUp(summary?.totalEarned ?? 0);
+  const todayDisplay = useCountUp(summary?.todayEarnings ?? 0);
 
   const activateInternship = useActivateInternship({
     mutation: {
@@ -136,14 +170,24 @@ export default function Dashboard() {
       <div className="container mx-auto px-4 py-6 max-w-5xl">
 
         {/* Greeting */}
-        <div className="mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
+          className="mb-6"
+        >
           <h1 className="text-2xl font-bold">Hi, {user?.fullName?.split(" ")[0]} 👋</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Here's your investment overview</p>
-        </div>
+        </motion.div>
 
         {/* ── CLAIM EARNINGS BANNER ─────────────────────────────────────────── */}
         {hasClaimable && (
-          <div className="mb-5 rounded-xl border-2 border-green-500 bg-green-50 dark:bg-green-950/20 p-4 shadow-sm">
+          <motion.div
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="mb-5 rounded-xl border-2 border-green-500 bg-green-50 dark:bg-green-950/20 p-4 shadow-sm"
+          >
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="bg-green-500 text-white p-2 rounded-lg shrink-0 animate-pulse">
@@ -173,12 +217,17 @@ export default function Dashboard() {
                 </Link>
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* ── WITHDRAWAL LOCK NOTICE ──────────────────────────────────────── */}
         {activeInvestments.length > 0 && !canWithdraw && (
-          <div className="mb-5 rounded-xl border border-orange-200 bg-orange-50 dark:bg-orange-950/20 p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3, delay: 0.1 }}
+            className="mb-5 rounded-xl border border-orange-200 bg-orange-50 dark:bg-orange-950/20 p-4"
+          >
             <div className="flex items-start gap-3">
               <Lock className="h-5 w-5 text-orange-500 mt-0.5 shrink-0" />
               <div>
@@ -191,12 +240,17 @@ export default function Dashboard() {
                 </p>
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* ── WITHDRAWAL UNLOCKED NOTICE ─────────────────────────────────── */}
         {canWithdraw && (
-          <div className="mb-5 rounded-xl border-2 border-primary bg-primary/5 p-4 shadow-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="mb-5 rounded-xl border-2 border-primary bg-primary/5 p-4 shadow-sm"
+          >
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
@@ -209,11 +263,16 @@ export default function Dashboard() {
                 <Button className="w-full sm:w-auto shrink-0">Withdraw Now</Button>
               </Link>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Action buttons */}
-        <div className="grid grid-cols-2 sm:flex sm:flex-row gap-3 mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: "easeOut", delay: 0.05 }}
+          className="grid grid-cols-2 sm:flex sm:flex-row gap-3 mb-6"
+        >
           <Link href="/invest" className="contents">
             <Button className="w-full sm:w-auto gap-2">
               <ArrowUpFromLine className="h-4 w-4" /> Deposit & Invest
@@ -229,11 +288,16 @@ export default function Dashboard() {
               <Users className="h-4 w-4" /> Invite & Earn
             </Button>
           </Link>
-        </div>
+        </motion.div>
 
         {/* Internship Banner */}
         {user?.isInternshipEligible && !user?.internshipActivated && (
-          <div className="mb-5 rounded-xl border-2 border-primary/30 bg-primary/5 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.1 }}
+            className="mb-5 rounded-xl border-2 border-primary/30 bg-primary/5 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+          >
             <div className="flex items-center gap-3">
               <div className="bg-primary/10 p-2 rounded-lg shrink-0">
                 <Gift className="h-5 w-5 text-primary" />
@@ -246,7 +310,7 @@ export default function Dashboard() {
             <Button size="sm" onClick={() => activateInternship.mutate()} disabled={activateInternship.isPending} className="shrink-0 w-full sm:w-auto">
               {activateInternship.isPending ? "Activating..." : "Activate Now"}
             </Button>
-          </div>
+          </motion.div>
         )}
 
         {/* Internship Progress */}
@@ -282,40 +346,53 @@ export default function Dashboard() {
         )}
 
         {/* KPI Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-          {summaryLoading ? (
-            Array(4).fill(0).map((_, i) => (
+        {summaryLoading ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            {Array(4).fill(0).map((_, i) => (
               <Card key={i}><CardContent className="p-4"><Skeleton className="h-10 w-full" /></CardContent></Card>
-            ))
-          ) : (
-            <>
+            ))}
+          </div>
+        ) : (
+          <motion.div
+            variants={containerVariants}
+            initial="hidden"
+            animate="show"
+            className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6"
+          >
+            <motion.div variants={cardVariants}>
               <Card className="border-primary/20 bg-primary/5">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1"><Wallet className="h-3.5 w-3.5" />Balance</div>
-                  <p className="text-xl font-bold text-primary">{formatKES(summary?.balance ?? 0)}</p>
+                  <p className="text-xl font-bold text-primary">{formatKES(balanceDisplay)}</p>
                 </CardContent>
               </Card>
+            </motion.div>
+            <motion.div variants={cardVariants}>
               <Card>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1"><TrendingUp className="h-3.5 w-3.5" />Total Earned</div>
-                  <p className="text-xl font-bold text-green-600">{formatKES(summary?.totalEarned ?? 0)}</p>
+                  <p className="text-xl font-bold text-green-600">{formatKES(earnedDisplay)}</p>
                 </CardContent>
               </Card>
+            </motion.div>
+            <motion.div variants={cardVariants}>
               <Card>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1"><Sparkles className="h-3.5 w-3.5" />Claimed Today</div>
-                  <p className="text-xl font-bold">{formatKES(summary?.todayEarnings ?? 0)}</p>
+                  <p className="text-xl font-bold">{formatKES(todayDisplay)}</p>
                 </CardContent>
               </Card>
+            </motion.div>
+            <motion.div variants={cardVariants}>
               <Card>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-1.5 text-muted-foreground text-xs mb-1"><CheckCircle2 className="h-3.5 w-3.5" />Active Plans</div>
                   <p className="text-xl font-bold">{summary?.activeInvestments ?? 0}</p>
                 </CardContent>
               </Card>
-            </>
-          )}
-        </div>
+            </motion.div>
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
           {/* Active Investments */}
@@ -339,8 +416,14 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {activeInvestments.map(inv => (
-                    <div key={inv.id} className="rounded-xl border bg-muted/20 p-4">
+                  {activeInvestments.map((inv, idx) => (
+                    <motion.div
+                      key={inv.id}
+                      initial={{ opacity: 0, x: -12 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.35, delay: idx * 0.07 }}
+                      className="rounded-xl border bg-muted/20 p-4"
+                    >
                       <div className="flex justify-between items-start mb-3">
                         <div>
                           <p className="font-semibold text-sm">{inv.plan?.name ?? "Investment Plan"}</p>
@@ -361,7 +444,7 @@ export default function Dashboard() {
                           🔒 Withdraw on: <strong>{formatDate(String(inv.completesAt))}</strong>
                         </p>
                       )}
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               )}
@@ -384,8 +467,14 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {recentTransactions.map(txn => (
-                    <div key={txn.id} className="flex items-center gap-3 py-2.5 border-b last:border-0">
+                  {recentTransactions.map((txn, idx) => (
+                    <motion.div
+                      key={txn.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3, delay: idx * 0.05 }}
+                      className="flex items-center gap-3 py-2.5 border-b last:border-0"
+                    >
                       <div className="bg-muted rounded-full p-1.5 shrink-0">
                         {txnIcon[txn.type] ?? <Sparkles className="h-4 w-4 text-muted-foreground" />}
                       </div>
@@ -401,7 +490,7 @@ export default function Dashboard() {
                           {txn.status}
                         </span>
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               )}

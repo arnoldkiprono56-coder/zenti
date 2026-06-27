@@ -47,8 +47,8 @@ router.post("/deposit", requireAuth, async (req: AuthRequest, res: Response) => 
     res.status(400).json({ error: "Amount and phone are required" });
     return;
   }
-  if (amount < 10) {
-    res.status(400).json({ error: "Minimum deposit is KES 10" });
+  if (amount < 1) {
+    res.status(400).json({ error: "Minimum deposit is KES 1" });
     return;
   }
   if (!/^(07|01|\+2547|\+2541)\d{8}$/.test(phone.replace(/\s/g, ""))) {
@@ -100,10 +100,13 @@ router.post("/deposit", requireAuth, async (req: AuthRequest, res: Response) => 
     .set({ notes: `Ticket: ${ticket.ticketNumber}` })
     .where(eq(transactionsTable.id, txn.id));
 
-  const appUrl =
-    process.env["APP_URL"] ??
-    `${req.protocol}://${req.headers["x-forwarded-host"] ?? req.get("host")}`;
-  const callbackUrl = `${appUrl}/api/transactions/callback/payhero`;
+  const proto =
+    (req.headers["x-forwarded-proto"] as string)?.split(",")[0]?.trim() ??
+    req.protocol;
+  const host =
+    (req.headers["x-forwarded-host"] as string)?.split(",")[0]?.trim() ??
+    req.get("host");
+  const callbackUrl = `${proto}://${host}/api/transactions/callback/payhero`;
 
   const [user] = await db.select({ fullName: usersTable.fullName, email: usersTable.email, phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
 

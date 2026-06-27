@@ -216,6 +216,12 @@ export function OtpDialog({
               </button>
             )}
           </div>
+
+          {isEmail && (
+            <p className="text-center text-xs text-muted-foreground border-t pt-3">
+              Can't find it? Check your <strong>spam or junk folder</strong>.
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
