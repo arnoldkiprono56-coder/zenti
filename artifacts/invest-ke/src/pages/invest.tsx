@@ -16,8 +16,8 @@ import { TrendingUp, Smartphone, CheckCircle2, Loader2, XCircle, PartyPopper } f
 
 type Step = "select" | "deposit" | "waiting" | "invest";
 
-const POLL_INTERVAL_MS = 5000;
-const POLL_TIMEOUT_MS = 90000;
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 120000;
 
 const stepVariants = {
   enter: { opacity: 0, x: 30 },
@@ -70,11 +70,12 @@ export default function Invest() {
 
         if (data.status === "completed") {
           stopPolling();
-          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          toast({ title: "Payment confirmed!", description: "Your balance has been credited." });
+          queryClient.invalidateQueries();
+          toast({ title: "✅ Payment confirmed!", description: `KES ${data.amount.toLocaleString()} has been credited to your account.` });
           setStep("invest");
         } else if (data.status === "failed") {
           stopPolling();
+          queryClient.invalidateQueries();
           toast({ title: "Payment failed", description: "The M-Pesa prompt was declined or timed out.", variant: "destructive" });
           setStep("deposit");
         }
@@ -86,13 +87,14 @@ export default function Invest() {
       }
     };
 
-    pollRef.current = setInterval(poll, POLL_INTERVAL_MS);
     poll();
+    pollRef.current = setInterval(poll, POLL_INTERVAL_MS);
 
     timeoutRef.current = setTimeout(() => {
       stopPolling();
       if (step === "waiting") {
-        toast({ title: "Payment timed out", description: "No confirmation received. Please try again.", variant: "destructive" });
+        toast({ title: "No confirmation yet", description: "The payment may still be processing. Check your balance on the dashboard.", variant: "destructive" });
+        queryClient.invalidateQueries();
         setStep("deposit");
       }
     }, POLL_TIMEOUT_MS);

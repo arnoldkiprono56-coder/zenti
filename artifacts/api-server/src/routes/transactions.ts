@@ -5,6 +5,7 @@ import { eq, sql, and } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
 import { initiateSTKPush } from "../lib/payhero";
 import { createTicket, closeTicket } from "../lib/tickets";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
@@ -186,9 +187,14 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
   const status = String(body["status"] ?? "").toUpperCase();
   const rawAmount = parseFloat(String(body["amount"] ?? "0"));
 
+  logger.info({ externalReference, status, rawAmount, body }, "PayHero callback received");
+
   res.json({ received: true });
 
-  if (!externalReference.startsWith("TXN-")) return;
+  if (!externalReference.startsWith("TXN-")) {
+    logger.warn({ externalReference }, "PayHero callback: unexpected external_reference format, ignoring");
+    return;
+  }
   const txnId = parseInt(externalReference.replace("TXN-", ""));
   if (isNaN(txnId)) return;
 
