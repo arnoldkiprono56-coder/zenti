@@ -45,7 +45,6 @@ type ReferralRecord = {
 };
 
 const ELITE_TARGET = 5;
-const SITE_URL = "https://zenti-investment-kenya.vercel.app";
 
 function StepBadge({ n }: { n: number }) {
   return (
@@ -59,6 +58,21 @@ function TierBanner({ stats, shareLink }: { stats: ReferralStats; shareLink: () 
   const { tier, isLegend, activeReferrals: active, countdownDaysLeft } = stats;
   const remaining = Math.max(0, ELITE_TARGET - active);
   const progressPct = Math.min(100, (active / ELITE_TARGET) * 100);
+
+  if (tier === "none" && stats.referralCode) return (
+    <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-5">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="bg-primary/20 text-primary p-2.5 rounded-xl"><Gift className="h-5 w-5" /></div>
+        <div>
+          <p className="font-bold text-foreground text-lg">🎉 You're Enrolled!</p>
+          <Badge className="bg-primary/10 text-primary border-primary/20 text-xs">Referral Program Active</Badge>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground bg-muted/40 rounded-xl px-4 py-3 mt-2">
+        Share your invite link below. As soon as your first friend makes a deposit, your <strong>10-day Elite challenge</strong> starts automatically and you earn <strong>10% of their deposit instantly</strong>.
+      </p>
+    </div>
+  );
 
   if (isLegend) return (
     <div className="rounded-2xl border-2 border-purple-400 bg-purple-50 p-5">
@@ -201,9 +215,9 @@ export default function Referrals() {
     loadData();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Switch to dashboard view if already enrolled
+  // Switch to dashboard view if already enrolled or just applied
   useEffect(() => {
-    if (stats && stats.tier !== "none") {
+    if (stats && (stats.tier !== "none" || stats.referralCode)) {
       setView("dashboard");
     }
   }, [stats]);
@@ -218,9 +232,7 @@ export default function Referrals() {
     return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const myLink = stats
-    ? `${SITE_URL}/register?ref=${stats.referralCode}`
-    : "";
+  const myLink = stats?.referralLink ?? "";
 
   const copyLink = () => {
     if (!myLink) return;
@@ -261,7 +273,7 @@ export default function Referrals() {
   const visibleReferrals = showAllReferrals ? referrals : referrals.slice(0, 6);
 
   /* ── Dashboard view (enrolled users) ─────────────────────────────────────── */
-  if (!loading && view === "dashboard" && stats && tier !== "none") {
+  if (!loading && view === "dashboard" && stats && (tier !== "none" || stats.referralCode)) {
     return (
       <Layout requireAuth>
         <div className="container mx-auto px-4 py-8 max-w-2xl">
@@ -497,7 +509,7 @@ export default function Referrals() {
               Share your link → friends invest → you earn bonuses automatically every Sunday at 11:59 PM
             </p>
           </div>
-          {tier !== "none" && (
+          {(tier !== "none" || stats?.referralCode) && (
             <Button variant="outline" size="sm" onClick={() => setView("dashboard")} className="gap-1.5 text-xs shrink-0">
               <Users className="h-3.5 w-3.5" /> My Dashboard
             </Button>
