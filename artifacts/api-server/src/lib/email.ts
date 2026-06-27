@@ -683,3 +683,77 @@ export async function sendPasswordResetEmail(
   return send(cfg, user.email, "🔐 Reset your Zenti password", layout(cfg, body),
     `Reset your Zenti password using this link (expires in 1 hour): ${data.resetUrl}`);
 }
+
+/* ─── Referral Welcome (sent when user applies to referral program) ──────── */
+
+export async function sendReferralWelcomeEmail(
+  user: { email: string; name: string },
+  data: { referralLink: string; referralCode: string },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const body = `
+    ${hi(user.name)}
+    ${hero("🤝", "Welcome to the Zenti Referral Program!")}
+    ${para("You're officially enrolled! Share your personal invite link with friends and family and earn automatically every Sunday.")}
+    <div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:14px;padding:20px 24px;margin:20px 0;text-align:center;">
+      <p style="margin:0 0 6px;color:#6b7280;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Your Personal Invite Link</p>
+      <p style="margin:0 0 14px;color:#14532d;font-size:13px;font-weight:700;word-break:break-all;font-family:'Courier New',monospace;">${data.referralLink}</p>
+      <p style="margin:0;color:#6b7280;font-size:12px;">Your code: <strong style="color:#14532d;font-family:'Courier New',monospace;">${data.referralCode}</strong></p>
+    </div>
+    ${para("Share this link on WhatsApp, Facebook, or SMS. Every friend who signs up and deposits via M-Pesa counts as your active investor.")}
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 24px;">
+      <tr><td style="padding:8px 0;border-bottom:1px solid #f0fdf4;">
+        <span style="display:inline-block;background:#16a34a;color:#fff;border-radius:50%;width:22px;height:22px;text-align:center;line-height:22px;font-size:11px;font-weight:700;margin-right:8px;vertical-align:middle;">1</span>
+        <span style="color:#374151;font-size:14px;vertical-align:middle;">Friend signs up using your link</span>
+      </td></tr>
+      <tr><td style="padding:8px 0;border-bottom:1px solid #f0fdf4;">
+        <span style="display:inline-block;background:#16a34a;color:#fff;border-radius:50%;width:22px;height:22px;text-align:center;line-height:22px;font-size:11px;font-weight:700;margin-right:8px;vertical-align:middle;">2</span>
+        <span style="color:#374151;font-size:14px;vertical-align:middle;">Friend makes their first M-Pesa deposit</span>
+      </td></tr>
+      <tr><td style="padding:8px 0;border-bottom:1px solid #f0fdf4;">
+        <span style="display:inline-block;background:#16a34a;color:#fff;border-radius:50%;width:22px;height:22px;text-align:center;line-height:22px;font-size:11px;font-weight:700;margin-right:8px;vertical-align:middle;">3</span>
+        <span style="color:#374151;font-size:14px;vertical-align:middle;"><strong>You earn 10% of their deposit instantly</strong> ⚡</span>
+      </td></tr>
+      <tr><td style="padding:8px 0;">
+        <span style="display:inline-block;background:#16a34a;color:#fff;border-radius:50%;width:22px;height:22px;text-align:center;line-height:22px;font-size:11px;font-weight:700;margin-right:8px;vertical-align:middle;">4</span>
+        <span style="color:#374151;font-size:14px;vertical-align:middle;">Every Sunday — <strong>up to 40% of their earnings</strong> auto-credited to you 🎁</span>
+      </td></tr>
+    </table>
+    ${tip("Get 5+ active investors in 10 days to unlock <strong>Elite tier (30% Sunday bonus)</strong>. Get 10+ in 7 days for <strong>Legend tier (35–40%)</strong>!")}
+    ${cta("📲 Open My Referral Dashboard", data.referralLink)}
+    ${hr()}${note("You received this because you enrolled in the Zenti Referral Program.")}`;
+  return send(cfg, user.email, "🤝 You're in! Your Zenti Referral Link is Ready", layout(cfg, body),
+    `Your Zenti referral link: ${data.referralLink}\nCode: ${data.referralCode}\nShare it to start earning bonuses!`);
+}
+
+/* ─── Referral Enrollment (sent when first active investor joins) ─────────── */
+
+export async function sendReferralEnrollmentEmail(
+  user: { email: string; name: string },
+  data: { referralLink: string; referralCode: string; deadlineDate: Date },
+  smtpConfig?: SmtpConfig,
+): Promise<EmailResult> {
+  const cfg = smtpConfig ?? getDefaultSmtpConfig();
+  const deadline = data.deadlineDate.toLocaleDateString("en-KE", {
+    timeZone: "Africa/Nairobi", day: "numeric", month: "long", year: "numeric",
+  });
+  const body = `
+    ${hi(user.name)}
+    ${hero("🚀", "Your 10-Day Elite Challenge Has Started!", "#fff7ed", "#9a3412")}
+    ${para("Your first active investor just joined! Your <strong>10-day Elite countdown</strong> has started automatically.")}
+    <div style="background:#fff7ed;border:2px solid #fb923c;border-radius:14px;padding:20px 24px;margin:20px 0;">
+      <p style="margin:0 0 8px;color:#9a3412;font-size:14px;font-weight:700;">⏳ Elite Challenge Deadline</p>
+      <p style="margin:0;color:#7c2d12;font-size:22px;font-weight:900;">${deadline}</p>
+      <p style="margin:8px 0 0;color:#9a3412;font-size:13px;">Get <strong>4 more active investors</strong> before this date to unlock <strong>Elite tier (30% Sunday bonus)</strong>.</p>
+    </div>
+    ${para("Get <strong>10+ active investors within 7 days</strong> to unlock the exclusive <strong>Legend tier (35–40% Sunday bonus)</strong>!")}
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:16px 20px;margin:16px 0;text-align:center;">
+      <p style="margin:0 0 6px;color:#6b7280;font-size:12px;font-weight:600;text-transform:uppercase;">Your Referral Link</p>
+      <p style="margin:0;color:#14532d;font-size:13px;font-weight:700;word-break:break-all;font-family:'Courier New',monospace;">${data.referralLink}</p>
+    </div>
+    ${cta("📲 Share Now & Unlock Elite", data.referralLink)}
+    ${hr()}${note("This email was sent because your first active investor joined Zenti using your referral link.")}`;
+  return send(cfg, user.email, "🚀 Elite Challenge Started — 10 Days to Unlock 30% Bonus!", layout(cfg, body),
+    `Your Zenti Elite Challenge has started! Get 4 more active investors by ${deadline} to unlock Elite tier. Your link: ${data.referralLink}`);
+}
