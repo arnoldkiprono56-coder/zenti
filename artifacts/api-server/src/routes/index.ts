@@ -24,7 +24,12 @@ router.use("/plans", plansRouter);
 
 // All routes below require a verified account
 router.use("/investments", requireVerified, investmentsRouter);
-router.use("/transactions", requireVerified, transactionsRouter);
+
+// Transactions: PayHero callback is public (external server, no token); everything else requires auth
+router.use("/transactions", (req, res, next) => {
+  if (req.path === "/callback/payhero" && req.method === "POST") return next();
+  requireVerified(req, res, next);
+}, transactionsRouter);
 router.use("/dashboard", requireVerified, dashboardRouter);
 router.use("/admin", requireVerified, adminRouter);
 router.use("/support", requireVerified, supportRouter);
