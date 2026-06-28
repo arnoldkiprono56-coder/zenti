@@ -37,8 +37,37 @@ const DISPOSABLE_DOMAINS = new Set([
   "2prong.com","3d-painting.com","3l6.com","3mail.ga",
 ]);
 
+/**
+ * Normalizes an email address by removing dots and plus-aliases for Gmail/Outlook.
+ * This prevents users from creating multiple accounts with "user+1@gmail.com", "u.s.e.r@gmail.com", etc.
+ */
+export function normalizeEmail(email: string): string {
+  const [local, domain] = email.toLowerCase().split("@");
+  if (!local || !domain) return email.toLowerCase();
+
+  // Common providers that support aliasing/dot-ignoring
+  const providersWithDots = ["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "icloud.com"];
+  
+  let normalizedLocal = local;
+  
+  // 1. Remove plus-aliases (e.g., user+alias@gmail.com -> user@gmail.com)
+  normalizedLocal = normalizedLocal.split("+")[0];
+
+  // 2. Remove dots for specific providers
+  if (providersWithDots.includes(domain)) {
+    normalizedLocal = normalizedLocal.replace(/\./g, "");
+  }
+
+  return `${normalizedLocal}@${domain}`;
+}
+
 export function isDisposableEmail(email: string): boolean {
   const domain = email.split("@")[1]?.toLowerCase();
   if (!domain) return false;
+  
+  // Block common patterns
+  if (domain.endsWith(".net") && domain.length > 15) return true; // generic long .net domains
+  if (domain.includes("temp") || domain.includes("throw") || domain.includes("mailinator")) return true;
+
   return DISPOSABLE_DOMAINS.has(domain);
 }

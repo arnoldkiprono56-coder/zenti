@@ -2,7 +2,8 @@ import { pgTable, serial, text, timestamp, boolean, integer } from "drizzle-orm/
 
 export const otpsTable = pgTable("otps", {
   id: serial("id").primaryKey(),
-  phone: text("phone").notNull(),
+  phone: text("phone"),
+  email: text("email"),
   code: text("code").notNull(),
   reason: text("reason").notNull(),
   used: boolean("used").notNull().default(false),

@@ -217,12 +217,28 @@ async function triggerAiReply(ticketId: number, ticket: typeof supportRequestsTa
       userCtx,
     );
 
-    if (!aiResult.reply || aiResult.confidence < 0.5) {
-      logger.info({ ticketId, confidence: aiResult.confidence }, "AI support: low confidence — skipping auto-reply");
+    if (!aiResult.reply || aiResult.confidence < 0.4) {
+      logger.info({ ticketId, confidence: aiResult.confidence }, "AI support: low confidence — sending fallback and escalating");
+      
+      const fallbackReply = `Hi ${ticket.name.split(" ")[0]}! 😊 I've received your message. I'm currently looking into this for you, but I want to make sure I give you the most accurate information. I've escalated this to our human support team who will review it shortly!`;
+      
+      await db.insert(supportMessagesTable).values({
+        ticketId,
+        userId: null,
+        sender: "admin",
+        message: `🤖 *Zenti AI Assistant*\n\n${fallbackReply}`,
+        isFlagged: false,
+        flagReason: null,
+      });
+
+      await db.update(supportRequestsTable)
+        .set({ priority: "high", updatedAt: new Date() })
+        .where(eq(supportRequestsTable.id, ticketId));
+
       await db.insert(activityLogsTable).values({
         userId: ticket.userId ?? undefined,
-        action: "ai_support_skipped",
-        details: `Ticket #${ticketId}: AI confidence too low (${(aiResult.confidence * 100).toFixed(0)}%) — needs human review`,
+        action: "ai_support_escalated",
+        details: `Ticket #${ticketId}: AI confidence low (${(aiResult.confidence * 100).toFixed(0)}%) — Sent fallback & marked High Priority`,
         ipAddress: "system-ai",
       });
       return;

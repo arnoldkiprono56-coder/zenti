@@ -10,7 +10,7 @@ import { signToken, requireAuth, AuthRequest } from "../middlewares/auth";
 import { generateReferralCode } from "./referrals";
 import { autoBanCheck, buildDeviceFingerprint } from "../lib/auto-ban";
 import { getCountryFromRequest, countryName, getIspInfo } from "../lib/geo";
-import { isDisposableEmail } from "../lib/disposable-domains";
+import { isDisposableEmail, normalizeEmail } from "../lib/disposable-domains";
 import { sendPasswordResetEmail, getDefaultSmtpConfig } from "../lib/email";
 import { getConfig } from "../lib/config";
 
@@ -49,6 +49,14 @@ router.post("/register", async (req: Request, res: Response) => {
   // ── Disposable email block ─────────────────────────────────────────
   if (isDisposableEmail(email)) {
     res.status(400).json({ error: "Disposable or temporary email addresses are not allowed. Please use a real email address." });
+    return;
+  }
+
+  // ── Email Normalization & Multi-account Check ──────────────────────
+  const normalizedEmail = normalizeEmail(email);
+  const existingByNormalized = await db.select().from(usersTable).where(eq(usersTable.email, normalizedEmail)).limit(1);
+  if (existingByNormalized.length > 0) {
+    res.status(400).json({ error: "This email (or a variation of it) is already registered. Please use a different email." });
     return;
   }
 
@@ -99,18 +107,32 @@ router.post("/register", async (req: Request, res: Response) => {
     isInternshipEligible = year === 2026 && (month === 6 || month === 7);
   }
 
-  // Check if OTP was genuinely verified for this phone in the last 5 minutes
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  // Check if OTP was genuinely verified for BOTH phone and email in the last 10 minutes
+  const verificationWindow = new Date(Date.now() - 10 * 60 * 1000);
   const normalizedPhone = phone.replace(/\s/g, "");
-  const [recentVerifiedOtp] = await db
-    .select({ id: otpsTable.id })
-    .from(otpsTable)
-    .where(and(
+  const normalizedEmail = normalizeEmail(email);
+
+  const [phoneVerified, emailVerified] = await Promise.all([
+    db.select({ id: otpsTable.id }).from(otpsTable).where(and(
       eq(otpsTable.phone, normalizedPhone),
       eq(otpsTable.used, true),
-      gt(otpsTable.createdAt, fiveMinutesAgo),
-    ))
-    .limit(1);
+      gt(otpsTable.createdAt, verificationWindow)
+    )).limit(1),
+    db.select({ id: otpsTable.id }).from(otpsTable).where(and(
+      eq(otpsTable.email, normalizedEmail),
+      eq(otpsTable.used, true),
+      gt(otpsTable.createdAt, verificationWindow)
+    )).limit(1)
+  ]);
+
+  if (!phoneVerified.length) {
+    res.status(400).json({ error: "Phone number not verified. Please verify your phone via OTP first." });
+    return;
+  }
+  if (!emailVerified.length) {
+    res.status(400).json({ error: "Email not verified. Please verify your email ownership via the link/code sent to you." });
+    return;
+  }
 
   // Capture device fingerprint and registration IP
   const registrationIp = getClientIp(req);
@@ -137,11 +159,11 @@ router.post("/register", async (req: Request, res: Response) => {
 
   const [user] = await db.insert(usersTable).values({
     fullName,
-    email,
+    email: normalizedEmail,
     phone: normalizedPhone,
     passwordHash,
     isInternshipEligible,
-    isVerified: !!recentVerifiedOtp,
+    isVerified: true,
     referralCode,
     referredById,
     registrationIp,
@@ -263,6 +285,69 @@ router.post("/pre-login", async (req: Request, res: Response) => {
 
   const skipOtp = user.role === "admin" || user.role === "superadmin";
   res.json({ phone: user.phone, role: user.role, skipOtp });
+});
+
+router.post("/send-email-otp", async (req: Request, res: Response) => {
+  const { email } = req.body;
+  if (!email) {
+    res.status(400).json({ error: "Email is required" });
+    return;
+  }
+
+  const normalized = normalizeEmail(email);
+  if (isDisposableEmail(normalized)) {
+    res.status(400).json({ error: "Temporary emails are not allowed." });
+    return;
+  }
+
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+
+  await db.insert(otpsTable).values({
+    email: normalized,
+    code,
+    reason: "email_verification",
+    expiresAt,
+  });
+
+  try {
+    const { sendEmailNotification, getDefaultSmtpConfig } = await import("../lib/email");
+    await sendEmailNotification({
+      email: normalized,
+      name: "User",
+      subject: "Your Zenti Verification Code",
+      heading: "Verify Your Email",
+      body: `<p>Your verification code for Zenti is: <strong style="font-size: 24px; color: #16a34a;">${code}</strong></p><p>This code will expire in 10 minutes.</p>`,
+      icon: "📧",
+    }, getDefaultSmtpConfig());
+    res.json({ message: "Verification code sent to your email." });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to send email. Please try again later." });
+  }
+});
+
+router.post("/verify-email-otp", async (req: Request, res: Response) => {
+  const { email, code } = req.body;
+  if (!email || !code) {
+    res.status(400).json({ error: "Email and code are required" });
+    return;
+  }
+
+  const normalized = normalizeEmail(email);
+  const [otp] = await db.select().from(otpsTable).where(and(
+    eq(otpsTable.email, normalized),
+    eq(otpsTable.code, code),
+    eq(otpsTable.used, false),
+    gt(otpsTable.expiresAt, new Date())
+  )).limit(1);
+
+  if (!otp) {
+    res.status(400).json({ error: "Invalid or expired code." });
+    return;
+  }
+
+  await db.update(otpsTable).set({ used: true }).where(eq(otpsTable.id, otp.id));
+  res.json({ message: "Email verified successfully." });
 });
 
 router.post("/login", async (req: Request, res: Response) => {
