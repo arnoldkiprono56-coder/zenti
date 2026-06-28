@@ -13,7 +13,7 @@ import { useAdminGetUsers, useAdminUpdateUser, getAdminGetUsersQueryKey } from "
 import { formatKES, formatDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Search, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownLeft, Loader2 } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, ArrowUpRight, ArrowDownLeft, Loader2, Lock, LockOpen } from "lucide-react";
 import { apiUrl } from "@/lib/api-url";
 
 const statusBadge: Record<string, string> = {
@@ -22,7 +22,7 @@ const statusBadge: Record<string, string> = {
   banned: "bg-red-100 text-red-800",
 };
 
-type UserRow = { id: number; fullName: string; email: string; phone: string; balance: number | null; status: string; role: string; createdAt: unknown };
+type UserRow = { id: number; fullName: string; email: string; phone: string; balance: number | null; lockedBalance?: number | null; status: string; role: string; createdAt: unknown };
 
 export default function AdminUsers() {
   const { toast } = useToast();
@@ -40,6 +40,9 @@ export default function AdminUsers() {
   const [adjType, setAdjType] = useState<"credit" | "debit">("credit");
   const [adjNote, setAdjNote] = useState("");
   const [adjLoading, setAdjLoading] = useState(false);
+
+  // Release earnings hold state
+  const [releaseLoading, setReleaseLoading] = useState(false);
 
   const { data, isLoading } = useAdminGetUsers({
     page,
@@ -62,6 +65,27 @@ export default function AdminUsers() {
   const users = usersData?.data ?? [];
   const total = usersData?.total ?? 0;
   const totalPages = Math.ceil(total / 20);
+
+  async function handleReleaseHold() {
+    if (!selectedUser) return;
+    setReleaseLoading(true);
+    try {
+      const token = localStorage.getItem("investke_token");
+      const res = await fetch(apiUrl(`/api/admin/users/${selectedUser.id}/release-earnings-hold`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json() as { ok?: boolean; released?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      toast({ title: "✅ Earnings Hold Released", description: `KES ${(data.released ?? 0).toFixed(2)} released for ${selectedUser.fullName}` });
+      queryClient.invalidateQueries({ queryKey: getAdminGetUsersQueryKey() });
+      setSelectedUser(u => u ? { ...u, lockedBalance: 0 } : null);
+    } catch (err: unknown) {
+      toast({ title: "Release failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+    } finally {
+      setReleaseLoading(false);
+    }
+  }
 
   async function handleBalanceAdjustment() {
     if (!selectedUser) return;
@@ -185,7 +209,11 @@ export default function AdminUsers() {
           <Tabs defaultValue="account">
             <TabsList className="w-full">
               <TabsTrigger value="account" className="flex-1">Account</TabsTrigger>
-              <TabsTrigger value="balance" className="flex-1">Balance Adjustment</TabsTrigger>
+              <TabsTrigger value="balance" className="flex-1">Balance</TabsTrigger>
+              <TabsTrigger value="hold" className="flex-1 gap-1">
+                <Lock className="h-3 w-3" /> Hold
+                {(selectedUser?.lockedBalance ?? 0) > 0 && <span className="ml-1 bg-red-500 text-white text-[10px] px-1 rounded-full">!</span>}
+              </TabsTrigger>
             </TabsList>
 
             {/* ── Account Tab ── */}
@@ -215,6 +243,38 @@ export default function AdminUsers() {
                 onClick={() => selectedUser && updateMutation.mutate({ id: selectedUser.id, data: { status: editStatus as "active" | "suspended" | "banned", role: editRole as "user" | "admin" } })}>
                 {updateMutation.isPending ? "Saving..." : "Save Account Changes"}
               </Button>
+            </TabsContent>
+
+            {/* ── Earnings Hold Tab ── */}
+            <TabsContent value="hold" className="space-y-4 pt-2">
+              {(selectedUser?.lockedBalance ?? 0) > 0 ? (
+                <>
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
+                    <p className="font-semibold text-sm text-red-800 flex items-center gap-2"><Lock className="h-4 w-4" /> Earnings on Hold</p>
+                    <p className="text-2xl font-bold text-red-700">{formatKES(selectedUser?.lockedBalance ?? 0)}</p>
+                    <p className="text-xs text-red-600">This amount is locked and cannot be withdrawn by the user until released.</p>
+                  </div>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p><strong>Why is it held?</strong> The user has earned ≥ KES 200 from investments without yet making a qualifying deposit of KES 500+.</p>
+                    <p><strong>Auto-release:</strong> Happens automatically when the user deposits ≥ KES 500.</p>
+                    <p><strong>Manual release:</strong> Click the button below to release it now if you've verified the account.</p>
+                  </div>
+                  <Button
+                    className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
+                    disabled={releaseLoading}
+                    onClick={handleReleaseHold}
+                  >
+                    {releaseLoading
+                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Releasing…</>
+                      : <><LockOpen className="h-4 w-4" /> Release KES {formatKES(selectedUser?.lockedBalance ?? 0)} Hold</>}
+                  </Button>
+                </>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <LockOpen className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No earnings on hold for this user.</p>
+                </div>
+              )}
             </TabsContent>
 
             {/* ── Balance Adjustment Tab ── */}

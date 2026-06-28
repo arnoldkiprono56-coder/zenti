@@ -1,6 +1,6 @@
 import { Router, Response } from "express";
 import { db } from "@workspace/db";
-import { claimableEarningsTable, usersTable, activityLogsTable, investmentsTable, plansTable } from "@workspace/db";
+import { claimableEarningsTable, usersTable, activityLogsTable, investmentsTable, plansTable, transactionsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
 
@@ -104,20 +104,51 @@ router.post("/claim", requireAuth, async (req: AuthRequest, res: Response) => {
       .where(eq(claimableEarningsTable.id, earning.id));
   }
 
-  // Credit user wallet; internship portion also goes to lockedBalance
+  // Credit user wallet
   await db
     .update(usersTable)
     .set({
       balance: sql`${usersTable.balance} + ${totalAmount}`,
       totalEarned: sql`${usersTable.totalEarned} + ${totalAmount}`,
-      lockedBalance: sql`${usersTable.lockedBalance} + ${internshipLockedAmount}`,
       updatedAt: now,
     })
     .where(eq(usersTable.id, req.userId!));
 
   const [user] = await db
-    .select({ email: usersTable.email, fullName: usersTable.fullName, balance: usersTable.balance })
+    .select({ email: usersTable.email, fullName: usersTable.fullName, balance: usersTable.balance, totalEarned: usersTable.totalEarned, lockedBalance: usersTable.lockedBalance })
     .from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+
+  // Earnings hold: once a user has earned KES 200+ in total, investment earnings are held
+  // until they have made a qualifying deposit of KES 500+ (auto-release) or a moderator releases it.
+  const newTotalEarned = parseFloat(user?.totalEarned ?? "0");
+  if (newTotalEarned >= 200) {
+    // Lock this batch of earnings
+    await db.update(usersTable)
+      .set({ lockedBalance: sql`${usersTable.lockedBalance} + ${totalAmount}`, updatedAt: now })
+      .where(eq(usersTable.id, req.userId!));
+
+    // Auto-release: has this user ever completed a deposit of KES 500 or more?
+    const [qualifyingDeposit] = await db
+      .select({ id: transactionsTable.id })
+      .from(transactionsTable)
+      .where(sql`${transactionsTable.userId} = ${req.userId!} AND ${transactionsTable.type} = 'deposit' AND ${transactionsTable.status} = 'completed' AND ${transactionsTable.amount}::numeric >= 500`)
+      .limit(1);
+
+    if (qualifyingDeposit) {
+      // Auto-release: user qualifies — clear the hold
+      await db.update(usersTable)
+        .set({ lockedBalance: "0", updatedAt: now })
+        .where(eq(usersTable.id, req.userId!));
+      await db.insert(activityLogsTable).values({
+        userId: req.userId!,
+        userEmail: user?.email ?? "unknown",
+        action: "earnings_hold_auto_released",
+        details: `Earnings hold auto-released: user has a qualifying deposit ≥ KES 500. Claimed KES ${totalAmount.toFixed(2)}.`,
+        ipAddress: req.ip ?? "unknown",
+      });
+    }
+    // else: hold stays — moderator must release it manually
+  }
 
   await db.insert(activityLogsTable).values({
     userId: req.userId!,

@@ -161,6 +161,33 @@ router.post("/users/:id/balance-adjustment", requireAdmin, async (req: AuthReque
   res.json({ ok: true, newBalance });
 });
 
+router.post("/users/:id/release-earnings-hold", requireAdmin, async (req: AuthRequest, res: Response) => {
+  const userId = parseInt(String(req.params["id"]));
+  if (isNaN(userId)) { res.status(400).json({ error: "Invalid user id" }); return; }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  const locked = parseFloat(String(user.lockedBalance ?? "0"));
+  if (locked <= 0) {
+    res.status(400).json({ error: "This user has no earnings on hold." }); return;
+  }
+
+  await db.update(usersTable)
+    .set({ lockedBalance: "0", updatedAt: new Date() })
+    .where(eq(usersTable.id, userId));
+
+  await db.insert(activityLogsTable).values({
+    userId: req.userId,
+    action: "admin_release_earnings_hold",
+    details: `Admin #${req.userId} manually released earnings hold of KES ${locked.toFixed(2)} for user #${userId} (${user.email}).`,
+    ipAddress: req.ip || "unknown",
+  });
+
+  logger.info({ adminId: req.userId, userId, released: locked }, "Earnings hold manually released");
+  res.json({ ok: true, released: locked });
+});
+
 // ── Transactions ─────────────────────────────────────────────────────────────
 
 router.get("/transactions", requireAdmin, async (req: AuthRequest, res: Response) => {

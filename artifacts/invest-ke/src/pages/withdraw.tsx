@@ -11,7 +11,7 @@ import { useGetDashboardSummary, useGetMyTransactions, useRequestWithdrawal, use
 import { formatKES, formatDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDownToLine, Clock, Info } from "lucide-react";
+import { ArrowDownToLine, Clock, Info, Lock } from "lucide-react";
 import { OtpDialog } from "@/components/otp-dialog";
 import { apiUrl } from "@/lib/api-url";
 
@@ -44,6 +44,8 @@ export default function Withdraw() {
 
   const pendingWithdrawals = transactions.filter(t => t.type === "withdrawal" && t.status === "pending");
   const balance = summary?.balance ?? 0;
+  const lockedBalance = (summary as any)?.lockedBalance ?? 0;
+  const withdrawable = Math.max(0, balance - lockedBalance);
   const amt = parseFloat(amount || "0");
 
   const feePercent = (settings as any)?.withdrawalFeePercent ?? 10;
@@ -99,7 +101,7 @@ export default function Withdraw() {
   };
 
   const phone = (summary as any)?.phone ?? "";
-  const isValidAmt = amt >= 200 && amt <= balance;
+  const isValidAmt = amt >= 200 && amt <= withdrawable;
   const canSubmit = !withdrawMutation.isPending && !sendingOtp && !!method && !!phoneOrAccount && isValidAmt;
 
   return (
@@ -112,14 +114,34 @@ export default function Withdraw() {
 
         {/* Balance */}
         <Card className="mb-6 border-primary/20 bg-primary/5">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Available Balance</p>
-              <p className="text-3xl font-bold text-primary">{formatKES(balance)}</p>
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Withdrawable Balance</p>
+                <p className="text-3xl font-bold text-primary">{formatKES(withdrawable)}</p>
+                {lockedBalance > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Total balance: {formatKES(balance)} · <span className="text-amber-600 font-medium">{formatKES(lockedBalance)} on hold</span>
+                  </p>
+                )}
+              </div>
+              <ArrowDownToLine className="h-10 w-10 text-primary/30" />
             </div>
-            <ArrowDownToLine className="h-10 w-10 text-primary/30" />
           </CardContent>
         </Card>
+
+        {/* Earnings hold warning */}
+        {lockedBalance > 0 && (
+          <Card className="mb-6 border-amber-200/70 bg-amber-50/40 dark:bg-amber-950/10">
+            <CardContent className="p-4 flex items-start gap-3">
+              <Lock className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p className="font-semibold text-amber-800 dark:text-amber-400">KES {formatKES(lockedBalance)} of your earnings are on hold</p>
+                <p>Investment earnings are held once you've earned a cumulative total of KES 200. To unlock automatically, make a deposit of <strong>KES 500 or more</strong>. Your moderator can also release it manually.</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Limits info */}
         <Card className="mb-6 border-blue-200/50 bg-blue-50/30 dark:bg-blue-950/10">
@@ -162,8 +184,8 @@ export default function Withdraw() {
             <div className="space-y-2">
               <Label>Amount to Withdraw (KES)</Label>
               <Input type="number" placeholder="Min: 200" value={amount} onChange={e => setAmount(e.target.value)} min={200} />
-              {amt > 0 && amt > balance && (
-                <p className="text-xs text-red-500">Amount exceeds your available balance</p>
+              {amt > 0 && amt > withdrawable && (
+                <p className="text-xs text-red-500">Amount exceeds your withdrawable balance ({formatKES(withdrawable)})</p>
               )}
               {amt > 0 && amt < 200 && (
                 <p className="text-xs text-amber-500">Minimum withdrawal is KES 200</p>
@@ -171,7 +193,7 @@ export default function Withdraw() {
             </div>
 
             {/* Fee breakdown */}
-            {amt >= 200 && amt <= balance && (
+            {amt >= 200 && amt <= withdrawable && (
               <div className="bg-muted rounded-lg p-4 space-y-2 text-sm">
                 <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Withdrawal Breakdown</p>
                 <div className="flex justify-between">

@@ -273,6 +273,26 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
       })();
     }
 
+    // Auto-release earnings hold: if this deposit is KES 500+, unlock held earnings
+    if (confirmedAmount >= 500) {
+      const [userForLock] = await db
+        .select({ lockedBalance: usersTable.lockedBalance })
+        .from(usersTable).where(eq(usersTable.id, txn.userId)).limit(1);
+      const locked = parseFloat(userForLock?.lockedBalance ?? "0");
+      if (locked > 0) {
+        await db.update(usersTable)
+          .set({ lockedBalance: "0", updatedAt: new Date() })
+          .where(eq(usersTable.id, txn.userId));
+        await db.insert(activityLogsTable).values({
+          userId: txn.userId,
+          userEmail: user?.email ?? "unknown",
+          action: "earnings_hold_auto_released",
+          details: `Earnings hold of KES ${locked.toFixed(2)} auto-released on deposit of KES ${confirmedAmount} (qualifying deposit ≥ KES 500).`,
+          ipAddress: "payhero-callback",
+        });
+      }
+    }
+
     // Tier 1 referral bonus: 10% to referrer on first deposit
     const [referral] = await db
       .select()
@@ -342,85 +362,27 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
-  // ── WITHDRAWAL LOCK ────────────────────────────────────────────────────────
-  const activeInvestments = await db
-    .select({
-      id: investmentsTable.id,
-      completesAt: investmentsTable.completesAt,
-      isInternship: plansTable.isInternship,
-    })
-    .from(investmentsTable)
-    .leftJoin(plansTable, eq(investmentsTable.planId, plansTable.id))
-    .where(and(eq(investmentsTable.userId, req.userId!), eq(investmentsTable.status, "active")));
+  const balance = parseFloat(user.balance ?? "0");
+  const lockedBalance = parseFloat(user.lockedBalance ?? "0");
 
-  if (activeInvestments.length === 0) {
+  // Withdrawable = total balance minus any held earnings
+  const withdrawable = Math.max(0, balance - lockedBalance);
+
+  // ── EARNINGS HOLD CHECK ───────────────────────────────────────────────────
+  if (lockedBalance > 0 && withdrawable < 200) {
     res.status(400).json({
-      error: "Withdrawals require an active investment plan. Please deposit and activate a plan first.",
+      error: `KES ${lockedBalance.toLocaleString("en-KE", { minimumFractionDigits: 2 })} of your balance is on hold pending verification. To unlock it automatically, make a deposit of KES 500 or more. Otherwise a moderator will review and release it for you.`,
+      lockedBalance,
     });
     return;
   }
 
-  const balance = parseFloat(user.balance ?? "0");
-  const lockedBalance = parseFloat(user.lockedBalance ?? "0");
-
-  const realInvestments = activeInvestments.filter(i => !i.isInternship);
-
-  let withdrawable: number;
-  let isLastDayUnlock = false;
-
-  if (lockedBalance > 0) {
-    if (realInvestments.length === 0) {
-      res.status(400).json({
-        error: `Your KES ${lockedBalance.toFixed(0)} internship earnings are locked. Purchase a Premium Plan with a real M-Pesa deposit to unlock your earnings and access withdrawals.`,
-      });
-      return;
-    }
-
-    const lastDayReal = realInvestments.find(i => isLastDayKE(i.completesAt));
-    if (lastDayReal) {
-      withdrawable = balance;
-      isLastDayUnlock = true;
-    } else {
-      withdrawable = balance - lockedBalance;
-      if (withdrawable <= 0) {
-        const soonest = realInvestments.reduce((min, i) => {
-          if (!i.completesAt) return min;
-          return !min || i.completesAt < min.completesAt! ? i : min;
-        }, null as typeof realInvestments[0] | null);
-        const completionDate = soonest?.completesAt
-          ? soonest.completesAt.toLocaleDateString("en-KE", { timeZone: "Africa/Nairobi", weekday: "long", day: "numeric", month: "long", year: "numeric" })
-          : "the last day of your investment";
-        res.status(400).json({
-          error: `Your balance (KES ${balance.toLocaleString("en-KE", { minimumFractionDigits: 2 })}) does not exceed the locked KES ${lockedBalance.toFixed(0)}. Keep earning until your balance exceeds KES ${lockedBalance.toFixed(0)}, or wait until ${completionDate} to withdraw everything including the locked amount.`,
-          withdrawalUnlocksAt: soonest?.completesAt?.toISOString() ?? null,
-        });
-        return;
-      }
-    }
-  } else {
-    const soonestInvestment = activeInvestments.reduce((min, i) => {
-      if (!i.completesAt) return min;
-      return !min || i.completesAt < min.completesAt! ? i : min;
-    }, null as typeof activeInvestments[0] | null);
-
-    if (!soonestInvestment || !isLastDayKE(soonestInvestment.completesAt)) {
-      const completionDate = soonestInvestment?.completesAt
-        ? soonestInvestment.completesAt.toLocaleDateString("en-KE", { timeZone: "Africa/Nairobi", weekday: "long", day: "numeric", month: "long", year: "numeric" })
-        : "the last day of your investment";
-      res.status(400).json({
-        error: `Withdrawals are only available on the last day of your active investment. Your withdrawal window opens on: ${completionDate}.`,
-        withdrawalUnlocksAt: soonestInvestment?.completesAt?.toISOString() ?? null,
-      });
-      return;
-    }
-    withdrawable = balance;
-  }
-
   if (grossAmount > withdrawable) {
     res.status(400).json({
-      error: lockedBalance > 0 && !isLastDayUnlock
-        ? `You can only withdraw up to KES ${withdrawable.toLocaleString("en-KE", { minimumFractionDigits: 2 })} (balance minus the locked KES ${lockedBalance.toFixed(0)}).`
-        : "Insufficient balance",
+      error: lockedBalance > 0
+        ? `KES ${lockedBalance.toLocaleString("en-KE", { minimumFractionDigits: 2 })} of your balance is on hold. You can withdraw up to KES ${withdrawable.toLocaleString("en-KE", { minimumFractionDigits: 2 })} right now.`
+        : "Amount exceeds your available balance",
+      lockedBalance,
     });
     return;
   }
@@ -514,10 +476,7 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
   }
 
   await db.update(usersTable)
-    .set({
-      balance: String(balance - grossAmount),
-      ...(isLastDayUnlock ? { lockedBalance: "0" } : {}),
-    })
+    .set({ balance: String(balance - grossAmount) })
     .where(eq(usersTable.id, req.userId!));
 
   await db.insert(activityLogsTable).values({
