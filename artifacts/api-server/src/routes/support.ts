@@ -241,7 +241,13 @@ async function triggerAiReply(ticketId: number, ticket: typeof supportRequestsTa
 
     const newStatus = aiResult.shouldClose ? "resolved" : "in_progress";
     await db.update(supportRequestsTable)
-      .set({ status: newStatus, adminReply: aiResult.reply.slice(0, 2000), updatedAt: new Date() })
+      .set({ 
+        status: newStatus, 
+        adminReply: aiResult.reply.slice(0, 2000), 
+        category: aiResult.category as any,
+        priority: aiResult.priority as any,
+        updatedAt: new Date() 
+      })
       .where(eq(supportRequestsTable.id, ticketId));
 
     await db.insert(activityLogsTable).values({
@@ -306,6 +312,9 @@ router.post("/request", async (req: Request, res: Response) => {
   }).returning();
 
   res.status(201).json(request);
+
+  // AI auto-reply (fire and forget)
+  void triggerAiReply(request.id, request);
 });
 
 /* ── Auth: submit request linked to account ──────────────────────────────── */
@@ -338,6 +347,9 @@ router.post("/request/auth", requireAuth, async (req: AuthRequest, res: Response
   }).returning();
 
   res.status(201).json(request);
+
+  // AI auto-reply (fire and forget)
+  void triggerAiReply(request.id, request);
 });
 
 /* ── Chat: get my tickets ────────────────────────────────────────────────── */

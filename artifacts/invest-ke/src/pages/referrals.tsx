@@ -298,7 +298,8 @@ export default function Referrals() {
   /* ── Dashboard view ─────────────────────────────────────────────────────── */
   if (!loading && view === "dashboard" && stats && (tier !== "none" || stats.referralCode)) {
     return (
-      <Layout requireAuth>
+      <>
+        <Layout requireAuth>
         <div className="container mx-auto px-4 py-8 max-w-2xl">
 
           <div className="flex items-start justify-between mb-6">
@@ -600,9 +601,9 @@ export default function Referrals() {
 
           </div>
         </div>
-      </Layout>
+        </Layout>
 
-      {/* Contact Request Confirmation Dialog */}
+        {/* Contact Request Confirmation Dialog */}
       <Dialog open={contactDialogOpen} onOpenChange={setContactDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -637,6 +638,7 @@ export default function Referrals() {
           </div>
         </DialogContent>
       </Dialog>
+      </>
     );
   }
 

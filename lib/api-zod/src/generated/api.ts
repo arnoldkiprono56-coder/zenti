@@ -23,7 +23,8 @@ export const RegisterBody = zod.object({
   "fullName": zod.string(),
   "email": zod.string(),
   "phone": zod.string().describe('Kenyan phone number (07XX or 01XX)'),
-  "password": zod.string()
+  "password": zod.string(),
+  "fingerprint": zod.string().optional().describe('Client-side enhanced device fingerprint data (JSON string)')
 })
 
 

@@ -100,7 +100,44 @@ export default function Register() {
   const handleVerified = () => {
     if (!pendingValues) return;
     setOtpOpen(false);
-    register({ data: pendingValues as any }, {
+
+    // Collect enhanced fingerprint data
+    const fingerprintData = {
+      sw: window.screen.width,
+      sh: window.screen.height,
+      sd: window.screen.colorDepth,
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      nc: navigator.hardwareConcurrency || "unknown",
+      mem: (navigator as any).deviceMemory || "unknown",
+      plt: navigator.platform,
+      lang: navigator.language,
+      canv: (() => {
+        try {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return "none";
+          canvas.width = 200;
+          canvas.height = 50;
+          ctx.textBaseline = "top";
+          ctx.font = "14px 'Arial'";
+          ctx.textBaseline = "alphabetic";
+          ctx.fillStyle = "#f60";
+          ctx.fillRect(125, 1, 62, 20);
+          ctx.fillStyle = "#069";
+          ctx.fillText("Zenti-Fraud-Check", 2, 15);
+          ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+          ctx.fillText("Zenti-Fraud-Check", 4, 17);
+          return canvas.toDataURL().slice(-100); // Send just the suffix to keep it light
+        } catch { return "error"; }
+      })()
+    };
+
+    register({ 
+      data: { 
+        ...pendingValues, 
+        fingerprint: JSON.stringify(fingerprintData) 
+      } as any 
+    }, {
       onSuccess: () => setLocation("/dashboard"),
       onError: (err: any) => setError(err.message || "Registration failed. Please try again."),
     });

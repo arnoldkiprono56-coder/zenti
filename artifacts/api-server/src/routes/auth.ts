@@ -9,7 +9,7 @@ import { eq, and, gt } from "drizzle-orm";
 import { signToken, requireAuth, AuthRequest } from "../middlewares/auth";
 import { generateReferralCode } from "./referrals";
 import { autoBanCheck, buildDeviceFingerprint } from "../lib/auto-ban";
-import { getCountryFromRequest, countryName } from "../lib/geo";
+import { getCountryFromRequest, countryName, getIspInfo } from "../lib/geo";
 import { isDisposableEmail } from "../lib/disposable-domains";
 import { sendPasswordResetEmail, getDefaultSmtpConfig } from "../lib/email";
 import { getConfig } from "../lib/config";
@@ -26,7 +26,7 @@ function getClientIp(req: Request): string {
 }
 
 router.post("/register", async (req: Request, res: Response) => {
-  const { fullName, email, phone, password, refCode } = req.body;
+  const { fullName, email, phone, password, refCode, fingerprint: clientFingerprint } = req.body;
   if (!fullName || !email || !phone || !password) {
     res.status(400).json({ error: "All fields are required" });
     return;
@@ -49,6 +49,16 @@ router.post("/register", async (req: Request, res: Response) => {
   // ── Disposable email block ─────────────────────────────────────────
   if (isDisposableEmail(email)) {
     res.status(400).json({ error: "Disposable or temporary email addresses are not allowed. Please use a real email address." });
+    return;
+  }
+
+  // ── ISP Reputation check: Block VPNs/Data Centers ──────────────────
+  const ispInfo = await getIspInfo(req);
+  if (ispInfo.type === "hosting") {
+    res.status(403).json({
+      error: "Registration blocked: VPN or Proxy detected. Please use a legitimate Kenyan mobile or home internet connection (Safaricom, Airtel, Telkom, etc.) to register.",
+      vpnDetected: true,
+    });
     return;
   }
 
@@ -105,10 +115,25 @@ router.post("/register", async (req: Request, res: Response) => {
   // Capture device fingerprint and registration IP
   const registrationIp = getClientIp(req);
   const registrationCountry = regCountryDetected ?? "KE";
-  const deviceFingerprint = buildDeviceFingerprint(
+  
+  // Enhanced fingerprinting: combine server-side headers with client-side entropy
+  const serverFingerprint = buildDeviceFingerprint(
     req.headers["user-agent"] ?? "",
     req.headers["accept-language"] ?? "",
   );
+  
+  // If client-side fingerprint is provided, hash it together with server-side data
+  let deviceFingerprint = serverFingerprint;
+  if (clientFingerprint) {
+    const combined = `${serverFingerprint}|${clientFingerprint}`;
+    let hash = 0;
+    for (let i = 0; i < combined.length; i++) {
+      const char = combined.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    deviceFingerprint = `efp_${Math.abs(hash).toString(36)}`;
+  }
 
   const [user] = await db.insert(usersTable).values({
     fullName,

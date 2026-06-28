@@ -11,6 +11,7 @@ export interface SupportReply {
   confidence: number;       // 0–1
   needsHuman: boolean;      // true if AI recommends escalation
   category: string;         // type of issue
+  priority: "low" | "medium" | "high" | "urgent";
 }
 
 interface ConversationMessage {
@@ -181,7 +182,8 @@ Respond ONLY with valid JSON (no markdown, no backticks):
   "shouldClose": <true if this fully resolves the issue, false if follow-up is needed>,
   "confidence": <0.0 to 1.0 — how confident you are>,
   "needsHuman": <true if admin action is needed like balance adjustment, false otherwise>,
-  "category": "<claiming|withdrawal|deposit|account|referral|plan_info|technical|other>"
+  "category": "<claiming|withdrawal|deposit|account|referral|plan_info|technical|other>",
+  "priority": "<low|medium|high|urgent>"
 }`;
 
 // ─── Build a rich, structured account snapshot for the prompt ─────────────────
@@ -344,21 +346,25 @@ Task: Generate a personalized support reply to the LATEST user message above. Us
     const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
     if (!jsonMatch) throw new Error("No JSON in Gemini response");
 
-    const parsed = JSON.parse(jsonMatch[0]) as {
+        const parsed = JSON.parse(jsonMatch[0]) as {
       reply?: string;
       shouldClose?: boolean;
       confidence?: number;
       needsHuman?: boolean;
       category?: string;
+      priority?: string;
     };
 
     const confidence = Math.max(0, Math.min(1, Number(parsed.confidence ?? 0.5)));
     const reply = String(parsed.reply ?? "").trim();
-
     if (!reply) throw new Error("Empty reply from Gemini");
 
+    const priority = (parsed.priority === "low" || parsed.priority === "medium" || parsed.priority === "high" || parsed.priority === "urgent") 
+      ? parsed.priority as "low" | "medium" | "high" | "urgent"
+      : "medium";
+
     logger.info(
-      { ticketId: ticket.id, confidence, shouldClose: parsed.shouldClose, needsHuman: parsed.needsHuman, category: parsed.category },
+      { ticketId: ticket.id, confidence, shouldClose: parsed.shouldClose, needsHuman: parsed.needsHuman, category: parsed.category, priority },
       "Gemini support reply generated",
     );
 
@@ -368,6 +374,7 @@ Task: Generate a personalized support reply to the LATEST user message above. Us
       confidence,
       needsHuman: Boolean(parsed.needsHuman),
       category: String(parsed.category ?? "other"),
+      priority,
     };
   } catch (err: unknown) {
     logger.warn({ err, rawText: rawText.slice(0, 300), ticketId: ticket.id }, "Gemini support reply failed");

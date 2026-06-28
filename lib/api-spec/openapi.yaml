@@ -721,6 +721,9 @@ components:
           description: Kenyan phone number (07XX or 01XX)
         password:
           type: string
+        fingerprint:
+          type: string
+          description: Client-side enhanced device fingerprint data (JSON string)
 
     LoginInput:
       type: object

@@ -12,4 +12,6 @@ export interface RegisterInput {
   /** Kenyan phone number (07XX or 01XX) */
   phone: string;
   password: string;
+  /** Client-side enhanced device fingerprint data (JSON string) */
+  fingerprint?: string;
 }

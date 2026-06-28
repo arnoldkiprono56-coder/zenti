@@ -41,6 +41,41 @@ async function countryFromGeoip(ip: string): Promise<string | null> {
  * Get country code for a request.
  * Always pass the full Request object so Vercel headers can be read.
  */
+/** 
+ * Detect ISP and Network type from Vercel edge headers or external lookup.
+ * Returns { isp: string, type: "residential" | "cellular" | "business" | "hosting" | "unknown" }
+ */
+export async function getIspInfo(req: Request): Promise<{ isp: string; type: string }> {
+  const ip: string = (req as any).clientIp ?? req.ip ?? "unknown";
+  if (isPrivate(ip)) return { isp: "Local Network", type: "residential" };
+
+  // Use a free, no-key-required API for reputation check (ip-api.com)
+  // We use this to detect 'hosting' (VPNs/Data Centers)
+  try {
+    const resp = await fetch(`http://ip-api.com/json/${ip}?fields=status,mobile,proxy,hosting,isp,as`);
+    const data = await resp.json() as any;
+    
+    if (data.status === "success") {
+      let type = "residential";
+      if (data.hosting || data.proxy) type = "hosting";
+      else if (data.mobile) type = "cellular";
+      
+      return { 
+        isp: data.isp || data.as || "unknown", 
+        type 
+      };
+    }
+  } catch (err) {
+    console.error("[ISP] Reputation lookup failed:", err);
+  }
+
+  return { isp: "unknown", type: "unknown" };
+}
+
+/**
+ * Get country code for a request.
+ * Always pass the full Request object so Vercel headers can be read.
+ */
 export async function getCountryFromRequest(req: Request): Promise<string | null> {
   const ip: string = (req as any).clientIp ?? req.ip ?? "unknown";
 
