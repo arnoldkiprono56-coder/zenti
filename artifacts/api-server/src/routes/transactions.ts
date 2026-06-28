@@ -222,19 +222,37 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
   if (isSuccess) {
     const confirmedAmount = rawAmount > 0 ? rawAmount : parseFloat(txn.amount);
 
+    // Extract customer name from PayHero/Safaricom response
+    const mpesaCustomerName = String(r["CustomerName"] ?? r["customer_name"] ?? "");
+
     await db.update(transactionsTable)
       .set({ status: "completed", amount: String(confirmedAmount), updatedAt: new Date() })
       .where(eq(transactionsTable.id, txnId));
 
-    await db.update(usersTable)
-      .set({
-        balance: sql`${usersTable.balance} + ${confirmedAmount}`,
-        dormancyStartedAt: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(usersTable.id, txn.userId));
-
+    // Update user balance and handle identity verification
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, txn.userId)).limit(1);
+    
+    const updateData: any = {
+      balance: sql`${usersTable.balance} + ${confirmedAmount}`,
+      dormancyStartedAt: null,
+      updatedAt: new Date(),
+    };
+
+    // If user was restricted or not identity-verified, use this M-Pesa payment to verify them
+    if (user && (user.status === "restricted" || !user.isIdentityVerified)) {
+      if (mpesaCustomerName) {
+        updateData.status = "active";
+        updateData.isIdentityVerified = true;
+        updateData.verifiedName = mpesaCustomerName;
+        updateData.fullName = mpesaCustomerName; // Overwrite soft name with government name
+        updateData.adminNotes = (user.adminNotes ?? "") + ` | Identity verified via M-Pesa: ${mpesaCustomerName}`;
+        logger.info({ userId: user.id, mpesaCustomerName }, "User identity verified via M-Pesa deposit");
+      }
+    }
+
+    await db.update(usersTable)
+      .set(updateData)
+      .where(eq(usersTable.id, txn.userId));
 
     await db.insert(activityLogsTable).values({
       userId: txn.userId,
@@ -361,6 +379,27 @@ router.post("/withdraw", requireAuth, async (req: AuthRequest, res: Response) =>
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+  // ── IDENTITY VERIFICATION CHECK ──────────────────────────
+  if (user.status === "restricted") {
+    res.status(403).json({ 
+      error: "Your account is restricted. To enable withdrawals, please verify your identity by making a KES 1 verification deposit via M-Pesa.",
+      requiresVerification: true 
+    });
+    return;
+  }
+
+  // ── NAME MATCHING CHECK ──────────────────────────────────
+  // Ensure withdrawal phone/account name matches verified name (if verified)
+  // Note: In a real system, you might need a B2C name-check API here, 
+  // but for now we enforce that the user is verified.
+  if (!user.isIdentityVerified) {
+     res.status(403).json({ 
+      error: "Identity verification required. Please make a small deposit to verify your real name before withdrawing.",
+      requiresVerification: true 
+    });
+    return;
+  }
 
   const balance = parseFloat(user.balance ?? "0");
   const lockedBalance = parseFloat(user.lockedBalance ?? "0");

@@ -10,7 +10,7 @@ import { signToken, requireAuth, AuthRequest } from "../middlewares/auth";
 import { generateReferralCode } from "./referrals";
 import { autoBanCheck, buildDeviceFingerprint } from "../lib/auto-ban";
 import { getCountryFromRequest, countryName, getIspInfo } from "../lib/geo";
-import { isDisposableEmail, normalizeEmail } from "../lib/disposable-domains";
+import { isDisposableEmail, normalizeEmail, checkEmailReputation } from "../lib/disposable-domains";
 import { sendPasswordResetEmail, getDefaultSmtpConfig } from "../lib/email";
 import { getConfig } from "../lib/config";
 
@@ -58,6 +58,16 @@ router.post("/register", async (req: Request, res: Response) => {
   if (existingByNormalized.length > 0) {
     res.status(400).json({ error: "This email (or a variation of it) is already registered. Please use a different email." });
     return;
+  }
+
+  // ── Conditional Restriction Check ─────────────────────────────────
+  const reputation = checkEmailReputation(email);
+  let initialStatus: "active" | "restricted" = "active";
+  let restrictionReason: string | undefined;
+
+  if (reputation.isSuspicious) {
+    initialStatus = "restricted";
+    restrictionReason = reputation.reason;
   }
 
   // ── ISP Reputation check: Block VPNs/Data Centers ──────────────────
@@ -110,7 +120,6 @@ router.post("/register", async (req: Request, res: Response) => {
   // Check if OTP was genuinely verified for BOTH phone and email in the last 10 minutes
   const verificationWindow = new Date(Date.now() - 10 * 60 * 1000);
   const normalizedPhone = phone.replace(/\s/g, "");
-  const normalizedEmail = normalizeEmail(email);
 
   const [phoneVerified, emailVerified] = await Promise.all([
     db.select({ id: otpsTable.id }).from(otpsTable).where(and(
@@ -164,6 +173,8 @@ router.post("/register", async (req: Request, res: Response) => {
     passwordHash,
     isInternshipEligible,
     isVerified: true,
+    status: initialStatus,
+    adminNotes: restrictionReason ? `Restricted on signup: ${restrictionReason}` : null,
     referralCode,
     referredById,
     registrationIp,

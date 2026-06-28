@@ -3,7 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const userRoleEnum = pgEnum("user_role", ["user", "admin", "superadmin"]);
-export const userStatusEnum = pgEnum("user_status", ["active", "suspended", "banned", "dormant"]);
+export const userStatusEnum = pgEnum("user_status", ["active", "suspended", "banned", "dormant", "restricted"]);
 export const referralStatusEnum = pgEnum("referral_status", ["none", "countdown", "elite", "standard"]);
 
 export const usersTable = pgTable("users", {
@@ -25,6 +25,8 @@ export const usersTable = pgTable("users", {
   referralStatus: referralStatusEnum("referral_status").notNull().default("none"),
   referralCountdownDeadline: timestamp("referral_countdown_deadline"),
   isVerified: boolean("is_verified").notNull().default(false),
+  isIdentityVerified: boolean("is_identity_verified").notNull().default(false),
+  verifiedName: text("verified_name"),
   googleId: text("google_id"),
   registrationIp: text("registration_ip"),
   deviceFingerprint: text("device_fingerprint"),

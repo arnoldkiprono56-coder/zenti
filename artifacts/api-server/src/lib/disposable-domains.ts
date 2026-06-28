@@ -61,13 +61,60 @@ export function normalizeEmail(email: string): string {
   return `${normalizedLocal}@${domain}`;
 }
 
-export function isDisposableEmail(email: string): boolean {
-  const domain = email.split("@")[1]?.toLowerCase();
-  if (!domain) return false;
-  
-  // Block common patterns
-  if (domain.endsWith(".net") && domain.length > 15) return true; // generic long .net domains
-  if (domain.includes("temp") || domain.includes("throw") || domain.includes("mailinator")) return true;
+export interface EmailReputation {
+  isDisposable: boolean;
+  isSuspicious: boolean;
+  reason?: string;
+}
 
-  return DISPOSABLE_DOMAINS.has(domain);
+export function checkEmailReputation(email: string): EmailReputation {
+  const [local, domain] = email.toLowerCase().split("@");
+  if (!domain) return { isDisposable: false, isSuspicious: true, reason: "Invalid email" };
+
+  // 1. Hard block: Known disposable domains
+  if (DISPOSABLE_DOMAINS.has(domain)) {
+    return { isDisposable: true, isSuspicious: true, reason: "Known disposable domain" };
+  }
+
+  // 2. Pattern-based blocking
+  if (domain.includes("temp") || domain.includes("throw") || domain.includes("mailinator")) {
+    return { isDisposable: true, isSuspicious: true, reason: "Disposable pattern match" };
+  }
+
+  // 3. Suspicious patterns (Trigger identity verification)
+  let isSuspicious = false;
+  let reason: string | undefined;
+
+  // Generic long .net domains often used by temp services
+  if (domain.endsWith(".net") && domain.length > 12) {
+    isSuspicious = true;
+    reason = "Generic long .net domain";
+  }
+
+  // Plus aliases (user+alias@gmail.com)
+  if (local.includes("+")) {
+    isSuspicious = true;
+    reason = "Email alias detected";
+  }
+
+  // Multiple dots in local part (u.s.e.r@gmail.com)
+  const dotCount = (local.match(/\./g) || []).length;
+  if (dotCount > 2) {
+    isSuspicious = true;
+    reason = "Excessive dots in email";
+  }
+
+  // Low-reputation TLDs
+  const suspiciousTlds = [".icu", ".top", ".xyz", ".bid", ".date", ".win", ".stream", ".download", ".loan", ".men"];
+  if (suspiciousTlds.some(tld => domain.endsWith(tld))) {
+    isSuspicious = true;
+    reason = "Low-reputation TLD";
+  }
+
+  return { isDisposable: false, isSuspicious, reason };
+}
+
+/** Legacy support */
+export function isDisposableEmail(email: string): boolean {
+  return checkEmailReputation(email).isDisposable;
 }
