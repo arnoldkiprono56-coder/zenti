@@ -500,6 +500,26 @@ router.post("/chat/:ticketId/message", requireAuth, async (req: AuthRequest, res
   // AI auto-reply with freshly fetched account context
   void triggerAiReply(ticketId, ticket);
 
+  // Email a copy of the message to the user (as promised in frontend UI)
+  void (async () => {
+    try {
+      const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+      if (!user) return;
+      const { sendEmailNotification, getDefaultSmtpConfig } = await import("../lib/email");
+      await sendEmailNotification({
+        email: user.email,
+        name: user.fullName,
+        subject: `Support Message: ${ticket.subject}`,
+        heading: "Message Sent",
+        body: `<p>Hi <strong>${user.fullName}</strong>,</p>
+<p>We've received your follow-up message for ticket <strong>#${ticketId}</strong>:</p>
+<blockquote style="border-left:3px solid #6366f1;padding-left:12px;color:#374151;">${String(message).replace(/\n/g, "<br/>")}</blockquote>
+<p>Our AI assistant or a support agent will get back to you shortly. You can also view this conversation in your account.</p>`,
+        icon: "💬",
+      }, getDefaultSmtpConfig());
+    } catch { /* silent */ }
+  })();
+
   res.status(201).json(msg);
 });
 

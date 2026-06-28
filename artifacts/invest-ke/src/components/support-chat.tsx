@@ -64,6 +64,7 @@ export function SupportChat() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [newMessage, setNewMessage] = useState("");
+  const [isWaitingForAi, setIsWaitingForAi] = useState(false);
 
   const [newSubject, setNewSubject] = useState("");
   const [newBody, setNewBody] = useState("");
@@ -79,6 +80,32 @@ export function SupportChat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Poll for new messages if waiting for AI
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isWaitingForAi && activeTicket && open && view === "chat") {
+      interval = setInterval(async () => {
+        try {
+          const r = await fetch(apiUrl(`/api/support/chat/${activeTicket.id}/messages`), { headers });
+          if (r.ok) {
+            const data = await r.json();
+            const newMsgs = data.messages ?? [];
+            if (newMsgs.length > messages.length) {
+              setMessages(newMsgs);
+              // If the last message is from admin (AI), stop waiting
+              if (newMsgs[newMsgs.length - 1].sender === "admin") {
+                setIsWaitingForAi(false);
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Polling error:", err);
+        }
+      }, 3000); // Poll every 3 seconds
+    }
+    return () => clearInterval(interval);
+  }, [isWaitingForAi, activeTicket, open, view, messages.length]);
 
   async function loadTickets() {
     setLoadingTickets(true);
@@ -123,8 +150,9 @@ export function SupportChat() {
         setNewSubject("");
         setNewBody("");
         setNewCategory("general");
-        setView("list");
-        await loadTickets();
+        // Open the newly created ticket immediately
+        await openTicket(data);
+        setIsWaitingForAi(true);
       } else {
         toast({ title: "Error", description: data.error ?? "Could not create ticket", variant: "destructive" });
       }
@@ -146,6 +174,7 @@ export function SupportChat() {
       if (r.ok) {
         setMessages(m => [...m, data]);
         setNewMessage("");
+        setIsWaitingForAi(true); // Start polling for AI reply
       } else {
         toast({ title: "Error", description: data.error ?? "Could not send", variant: "destructive" });
       }
@@ -302,7 +331,8 @@ export function SupportChat() {
                     <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   </div>
                 ) : (
-                  messages.map(m => (
+                  <>
+                  {messages.map(m => (
                     <div
                       key={m.id}
                       className={`flex ${m.sender === "user" ? "justify-end" : "justify-start"}`}
@@ -330,7 +360,16 @@ export function SupportChat() {
                         )}
                       </div>
                     </div>
-                  ))
+                  ))}
+                  {isWaitingForAi && (
+                    <div className="flex justify-start">
+                      <div className="bg-white border rounded-2xl rounded-bl-sm px-3 py-2 text-sm flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>AI Assistant is typing…</span>
+                      </div>
+                    </div>
+                  )}
+                  </>
                 )}
                 <div ref={messagesEndRef} />
               </div>

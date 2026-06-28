@@ -8,6 +8,7 @@ import { Loader2, ShieldCheck } from "lucide-react";
 import { OtpDialog } from "@/components/otp-dialog";
 import { SupportChat } from "@/components/support-chat";
 import { BannedScreen } from "@/components/banned-screen";
+import { RestrictedScreen } from "@/components/restricted-screen";
 import { apiUrl } from "@/lib/api-url";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -130,14 +131,26 @@ export function Layout({ children, requireAuth = false, requireAdmin = false }: 
     );
   }
 
-  // Show banned screen for banned authenticated users
-  if (isAuthenticated && user && (user as any).status === "banned") {
-    return (
-      <BannedScreen
-        email={(user as any).email}
-        reason={(user as any).bannedReason ?? undefined}
-      />
-    );
+  // Show banned/suspended screen for restricted authenticated users
+  if (isAuthenticated && user) {
+    const status = (user as any).status;
+    if (status === "banned" || status === "suspended") {
+      return (
+        <BannedScreen
+          email={(user as any).email}
+          reason={(user as any).bannedReason ?? undefined}
+        />
+      );
+    }
+    
+    if (status === "restricted") {
+      return (
+        <RestrictedScreen
+          email={(user as any).email}
+          phone={(user as any).phone}
+        />
+      );
+    }
   }
 
   // Show verification wall for authenticated but unverified users on protected pages

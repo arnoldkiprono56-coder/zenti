@@ -26,8 +26,16 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     const payload = jwt.verify(token, JWT_SECRET) as { userId: number };
     req.userId = payload.userId;
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId)).limit(1);
-    if (!user || user.status === "banned") {
-      res.status(401).json({ error: "Account is suspended or banned" });
+    if (!user) {
+      res.status(401).json({ error: "User not found" });
+      return;
+    }
+    if (user.status === "banned" || user.status === "suspended") {
+      res.status(403).json({ 
+        error: `Account is ${user.status}`, 
+        status: user.status,
+        reason: user.bannedReason 
+      });
       return;
     }
     req.userRole = user.role;
@@ -47,8 +55,16 @@ export async function requireVerified(req: AuthRequest, res: Response, next: Nex
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { userId: number };
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId)).limit(1);
-    if (!user || user.status === "banned") {
-      res.status(401).json({ error: "Account is suspended or banned" });
+    if (!user) {
+      res.status(401).json({ error: "User not found" });
+      return;
+    }
+    if (user.status === "banned" || user.status === "suspended") {
+      res.status(403).json({ 
+        error: `Account is ${user.status}`, 
+        status: user.status,
+        reason: user.bannedReason 
+      });
       return;
     }
     if (!user.isVerified) {
