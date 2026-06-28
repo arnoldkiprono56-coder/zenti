@@ -72,7 +72,7 @@ async function saveAndSendOtp(
   const code = generateCode();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-  await db.insert(otpsTable).values({ phone, code, reason, expiresAt });
+  await db.insert(otpsTable).values({ phone, email, code, reason, expiresAt });
 
   const isPasswordReset = /password|reset/i.test(reason);
   const { method, settings } = isPasswordReset
@@ -200,7 +200,7 @@ router.post("/verify", async (req: Request, res: Response) => {
         gt(otpsTable.expiresAt, now),
       ),
     )
-    .orderBy(otpsTable.createdAt)
+    .orderBy(sql`${otpsTable.createdAt} desc`)
     .limit(1);
 
   if (!otp) {
