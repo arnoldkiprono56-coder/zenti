@@ -183,16 +183,26 @@ router.post("/deposit", requireAuth, async (req: AuthRequest, res: Response) => 
 router.post("/callback/payhero", async (req: Request, res: Response) => {
   const body = req.body as Record<string, unknown>;
 
-  const externalReference = String(body["external_reference"] ?? "");
-  const status = String(body["status"] ?? "").toUpperCase();
-  const rawAmount = parseFloat(String(body["amount"] ?? "0"));
+  // PayHero wraps the real data inside a "response" key with PascalCase field names.
+  // Fall back to the top-level body in case the shape changes.
+  const r = ((body["response"] ?? body) as Record<string, unknown>);
 
-  logger.info({ externalReference, status, rawAmount, body }, "PayHero callback received");
+  const externalReference = String(
+    r["ExternalReference"] ?? r["external_reference"] ??
+    body["ExternalReference"] ?? body["external_reference"] ?? ""
+  );
+  const resultCode = Number(r["ResultCode"] ?? r["result_code"] ?? -1);
+  const statusStr = String(r["Status"] ?? r["status"] ?? body["status"] ?? "").toLowerCase();
+  const rawAmount = parseFloat(String(r["Amount"] ?? r["amount"] ?? body["amount"] ?? "0"));
+  const mpesaReceipt = String(r["MpesaReceiptNumber"] ?? r["mpesa_receipt_number"] ?? "");
+  const isSuccess = resultCode === 0 || statusStr === "success";
+
+  logger.info({ externalReference, resultCode, statusStr, rawAmount, isSuccess, body }, "PayHero callback received");
 
   res.json({ received: true });
 
   if (!externalReference.startsWith("TXN-")) {
-    logger.warn({ externalReference }, "PayHero callback: unexpected external_reference format, ignoring");
+    logger.warn({ externalReference, body }, "PayHero callback: unrecognised external_reference, ignoring");
     return;
   }
   const txnId = parseInt(externalReference.replace("TXN-", ""));
@@ -209,7 +219,7 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
   // Extract ticket number from transaction notes
   const ticketNumber = txn.notes?.match(/Ticket: (ZEN-\d{8}-\d{5})/)?.[1];
 
-  if (status === "SUCCESS") {
+  if (isSuccess) {
     const confirmedAmount = rawAmount > 0 ? rawAmount : parseFloat(txn.amount);
 
     await db.update(transactionsTable)
@@ -301,7 +311,7 @@ router.post("/callback/payhero", async (req: Request, res: Response) => {
         try {
           const { sendDepositFailedEmail } = await import("../lib/email");
           const amount = parseFloat(txn.amount);
-          const failReason = String(body["failure_reason"] ?? body["result_description"] ?? "Payment was cancelled or timed out");
+          const failReason = String(r["ResultDesc"] ?? r["result_desc"] ?? body["failure_reason"] ?? body["result_description"] ?? "Payment was cancelled or timed out");
           await sendDepositFailedEmail(
             { email: user.email, name: user.fullName },
             { amount, phone: txn.phoneOrAccount ?? user.phone, ticketNumber, reason: failReason },
