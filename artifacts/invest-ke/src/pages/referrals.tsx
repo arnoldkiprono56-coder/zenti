@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { formatKES, formatDate } from "@/lib/format";
 import { apiUrl } from "@/lib/api-url";
@@ -13,6 +14,7 @@ import {
   CheckCircle2, ArrowRight, Zap, Share2, ChevronDown, ChevronUp,
   AlertTriangle, CalendarClock, Sparkles, ShieldAlert, Mail,
   RefreshCw, UserCheck, UserX, ExternalLink, Briefcase,
+  Lock, SendHorizonal, EyeOff,
 } from "lucide-react";
 
 type ReferralStats = {
@@ -193,6 +195,8 @@ export default function Referrals() {
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [contactDialogOpen, setContactDialogOpen] = useState(false);
+  const [contactLoading, setContactLoading] = useState(false);
 
   const token = localStorage.getItem("investke_token");
   const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
@@ -247,6 +251,22 @@ export default function Referrals() {
       await navigator.share({ title: "Join Zenti — Earn Daily Returns", text: "I'm earning daily returns on Zenti. Join using my link and let's both grow our money!", url: myLink });
     } else {
       copyLink();
+    }
+  };
+
+  const requestContactDetails = async () => {
+    setContactLoading(true);
+    try {
+      const r = await fetch(apiUrl("/api/referrals/contact-request"), { method: "POST", headers });
+      const data = await r.json() as { ok?: boolean; message?: string; error?: string };
+      if (r.ok) {
+        setContactDialogOpen(false);
+        toast({ title: "📧 Email sent!", description: data.message ?? "Check your inbox for the full contact details." });
+      } else {
+        toast({ title: "Error", description: data.error ?? "Could not send contact details", variant: "destructive" });
+      }
+    } finally {
+      setContactLoading(false);
     }
   };
 
@@ -389,6 +409,13 @@ export default function Referrals() {
                     )}
                   </div>
                 </div>
+                {/* Privacy notice */}
+                {referrals.length > 0 && (
+                  <div className="flex items-center gap-2 mt-2 bg-muted/40 rounded-lg px-3 py-2 text-xs text-muted-foreground">
+                    <EyeOff className="h-3.5 w-3.5 shrink-0" />
+                    <span>Contact details are hidden for privacy. Use <strong className="text-foreground">Request Contact Details</strong> below to receive them privately by email.</span>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="p-0">
                 {referrals.length === 0 ? (
@@ -494,6 +521,35 @@ export default function Referrals() {
               </CardContent>
             </Card>
 
+            {/* Request Contact Details card */}
+            {referrals.length > 0 && (
+              <div className="rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="bg-primary/10 p-2 rounded-xl shrink-0">
+                    <Lock className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm text-foreground">Request Contact Details</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      Your referrals' personal contact information (email and phone) is hidden on this screen to protect their privacy. You can request a full report — our system will email it <strong>privately to your registered email address</strong>. No admin sees this request.
+                    </p>
+                    <div className="flex items-center gap-3 mt-3 flex-wrap">
+                      <Button
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => setContactDialogOpen(true)}
+                        disabled={referrals.length === 0}
+                      >
+                        <SendHorizonal className="h-3.5 w-3.5" />
+                        Email Me Their Details
+                      </Button>
+                      <p className="text-xs text-muted-foreground">Once per 24 hours</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Sunday payout history */}
             {(stats.recentPayouts?.length ?? 0) > 0 && (
               <Card>
@@ -545,6 +601,42 @@ export default function Referrals() {
           </div>
         </div>
       </Layout>
+
+      {/* Contact Request Confirmation Dialog */}
+      <Dialog open={contactDialogOpen} onOpenChange={setContactDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-primary" /> Request Referral Contact Details
+            </DialogTitle>
+            <DialogDescription>
+              Our system will compile the full details of all your <strong>{referrals.length} referral{referrals.length !== 1 ? "s" : ""}</strong> and email them securely to your registered email address.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-muted/40 rounded-xl p-4 space-y-2 text-sm">
+              <p className="font-semibold text-foreground">The email will include:</p>
+              <ul className="space-y-1 text-muted-foreground text-xs">
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> Full name, email address, and phone number</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> Investment status and active plan name</li>
+                <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> Amount invested and join date</li>
+              </ul>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+              <strong>⚠️ Privacy notice:</strong> This data is shared exclusively with you as the referrer. Redistributing, selling, or sharing it with third parties is a violation of Zenti's Terms of Service and may result in account termination.
+            </div>
+            <p className="text-xs text-muted-foreground text-center">This request will be logged. You can request again after 24 hours.</p>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setContactDialogOpen(false)}>Cancel</Button>
+              <Button className="flex-1 gap-2" disabled={contactLoading} onClick={requestContactDetails}>
+                {contactLoading
+                  ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Sending…</>
+                  : <><SendHorizonal className="h-3.5 w-3.5" /> Send to My Email</>}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     );
   }
 

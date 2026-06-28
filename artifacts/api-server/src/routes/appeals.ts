@@ -1,7 +1,11 @@
 import { Router, Request, Response } from "express";
 import { db } from "@workspace/db";
-import { banAppealsTable, usersTable, activityLogsTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import {
+  banAppealsTable, usersTable, activityLogsTable,
+  investmentsTable, referralsTable, claimableEarningsTable,
+  transactionsTable,
+} from "@workspace/db";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 
@@ -18,6 +22,49 @@ function requireAdmin(req: AuthRequest, res: Response, next: Function) {
       }
     })
     .catch(() => res.status(500).json({ error: "Internal server error" }));
+}
+
+/* ── Full account reset on appeal approval ───────────────────────────────── */
+async function resetAccountToCleanSlate(userId: number): Promise<{
+  investmentsCancelled: number;
+  balanceWiped: string;
+}> {
+  // 1. Cancel all active investments
+  const cancelled = await db
+    .update(investmentsTable)
+    .set({ status: "cancelled" })
+    .where(and(eq(investmentsTable.userId, userId), eq(investmentsTable.status, "active")))
+    .returning({ id: investmentsTable.id });
+
+  // 2. Expire all unclaimed earnings
+  await db
+    .update(claimableEarningsTable)
+    .set({ expired: true })
+    .where(and(eq(claimableEarningsTable.userId, userId), eq(claimableEarningsTable.claimed, false)));
+
+  // 3. Read current balance for log
+  const [before] = await db.select({ balance: usersTable.balance }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+
+  // 4. Reset user to clean-slate financial and referral state
+  await db.update(usersTable).set({
+    balance: "0",
+    lockedBalance: "0",
+    totalEarned: "0",
+    referralStatus: "none",
+    referralCountdownDeadline: null,
+    internshipActivated: false,
+    updatedAt: new Date(),
+  }).where(eq(usersTable.id, userId));
+
+  logger.info(
+    { userId, investmentsCancelled: cancelled.length, balanceWiped: before?.balance },
+    "Account reset to clean slate after appeal approval",
+  );
+
+  return {
+    investmentsCancelled: cancelled.length,
+    balanceWiped: String(before?.balance ?? "0"),
+  };
 }
 
 /* ── Submit an appeal (banned users only — no requireAuth since they can't log in) ── */
@@ -42,7 +89,6 @@ router.post("/submit", async (req: Request, res: Response) => {
     return;
   }
 
-  // Check for existing pending appeal
   const [existing] = await db
     .select({ id: banAppealsTable.id, status: banAppealsTable.status })
     .from(banAppealsTable)
@@ -54,10 +100,7 @@ router.post("/submit", async (req: Request, res: Response) => {
     return;
   }
 
-  await db.insert(banAppealsTable).values({
-    userId: user.id,
-    message: message.trim(),
-  });
+  await db.insert(banAppealsTable).values({ userId: user.id, message: message.trim() });
 
   await db.insert(activityLogsTable).values({
     userId: user.id,
@@ -108,10 +151,7 @@ router.post("/:id/resolve", requireAuth, requireAdmin as any, async (req: AuthRe
   }
 
   const [appeal] = await db.select().from(banAppealsTable).where(eq(banAppealsTable.id, appealId)).limit(1);
-  if (!appeal) {
-    res.status(404).json({ error: "Appeal not found" });
-    return;
-  }
+  if (!appeal) { res.status(404).json({ error: "Appeal not found" }); return; }
 
   const now = new Date();
 
@@ -123,6 +163,7 @@ router.post("/:id/resolve", requireAuth, requireAdmin as any, async (req: AuthRe
   }).where(eq(banAppealsTable.id, appealId));
 
   if (action === "approve") {
+    // Step 1: Reinstate the account
     await db.update(usersTable).set({
       status: "active",
       bannedReason: null,
@@ -130,19 +171,43 @@ router.post("/:id/resolve", requireAuth, requireAdmin as any, async (req: AuthRe
       updatedAt: now,
     }).where(eq(usersTable.id, appeal.userId));
 
-    const [user] = await db.select({ email: usersTable.email, fullName: usersTable.fullName }).from(usersTable).where(eq(usersTable.id, appeal.userId)).limit(1);
+    // Step 2: Full clean-slate reset (investments, balance, referrals)
+    const resetSummary = await resetAccountToCleanSlate(appeal.userId);
+
+    // Step 3: Log the reset
+    await db.insert(activityLogsTable).values({
+      userId: appeal.userId,
+      userEmail: "system-appeal",
+      action: "account_reset_on_appeal",
+      details: `Appeal #${appealId} approved — account fully reset: ${resetSummary.investmentsCancelled} investment(s) cancelled, KES ${resetSummary.balanceWiped} balance wiped, referral status reset to none, internship reset.`,
+      ipAddress: "system",
+    });
+
+    // Step 4: Email user
+    const [user] = await db.select({ email: usersTable.email, fullName: usersTable.fullName })
+      .from(usersTable).where(eq(usersTable.id, appeal.userId)).limit(1);
+
     if (user) {
       void (async () => {
         try {
-          const { sendEmailNotification } = await import("../lib/email");
+          const { sendEmailNotification, getDefaultSmtpConfig } = await import("../lib/email");
           const result = await sendEmailNotification({
             email: user.email,
             name: user.fullName,
             subject: "Your Zenti Appeal Has Been Approved ✅",
-            heading: "Appeal Approved ✅",
+            heading: "Appeal Approved — Account Reinstated",
             icon: "✅",
-            body: `Great news, <strong>${user.fullName}</strong> — your account has been reinstated. You can now log in and continue using Zenti.<br/><br/>${adminNote ? `<strong>Admin note:</strong> ${adminNote}` : ""}`,
-          });
+            body: `<p>Great news, <strong>${user.fullName}</strong> — your appeal has been approved and your account has been reinstated.</p>
+<p>As per our Terms of Service, your account has been <strong>fully reset to a clean starting state</strong>:</p>
+<ul style="margin: 12px 0; padding-left: 20px; color: #374151;">
+  <li>All active investment plans have been cancelled</li>
+  <li>Your wallet balance has been reset to KES 0</li>
+  <li>Your referral progress and tier have been reset</li>
+  <li>Your Internship Package eligibility has been restored</li>
+</ul>
+<p>You can now log in and start fresh. If you believe a balance reset was applied in error, please <a href="${process.env.APP_URL || process.env.FRONTEND_URL || ""}/support">contact our support team</a>.</p>
+${adminNote ? `<p style="margin-top:12px"><strong>Admin note:</strong> ${adminNote}</p>` : ""}`,
+          }, getDefaultSmtpConfig());
           if (!result.ok) logger.error({ error: result.error, email: user.email }, "Appeal approval email failed");
           else logger.info({ email: user.email }, "Appeal approval email sent");
         } catch (err) {
@@ -151,19 +216,24 @@ router.post("/:id/resolve", requireAuth, requireAdmin as any, async (req: AuthRe
       })();
     }
   } else {
-    const [user] = await db.select({ email: usersTable.email, fullName: usersTable.fullName }).from(usersTable).where(eq(usersTable.id, appeal.userId)).limit(1);
+    const [user] = await db.select({ email: usersTable.email, fullName: usersTable.fullName })
+      .from(usersTable).where(eq(usersTable.id, appeal.userId)).limit(1);
+
     if (user) {
       void (async () => {
         try {
-          const { sendEmailNotification } = await import("../lib/email");
+          const { sendEmailNotification, getDefaultSmtpConfig } = await import("../lib/email");
           const result = await sendEmailNotification({
             email: user.email,
             name: user.fullName,
             subject: "Your Zenti Appeal Has Been Reviewed",
             heading: "Appeal Decision",
             icon: "ℹ️",
-            body: `Hi <strong>${user.fullName}</strong>,<br/><br/>After review, we were unable to reinstate your account at this time.<br/><br/>${adminNote ? `<strong>Reason:</strong> ${adminNote}<br/><br/>` : ""}If you believe this is in error, please <a href="${process.env.APP_URL || process.env.FRONTEND_URL || "https://zenti-investment-kenya.vercel.app"}/support">open a support ticket</a>.`,
-          });
+            body: `<p>Hi <strong>${user.fullName}</strong>,</p>
+<p>After careful review, we were unable to reinstate your account at this time.</p>
+${adminNote ? `<p><strong>Reason:</strong> ${adminNote}</p>` : ""}
+<p>If you believe this decision is in error, please <a href="${process.env.APP_URL || process.env.FRONTEND_URL || ""}/support">open a support ticket</a> with additional evidence.</p>`,
+          }, getDefaultSmtpConfig());
           if (!result.ok) logger.error({ error: result.error, email: user.email }, "Appeal rejection email failed");
           else logger.info({ email: user.email }, "Appeal rejection email sent");
         } catch (err) {

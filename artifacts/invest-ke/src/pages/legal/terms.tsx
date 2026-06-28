@@ -71,7 +71,23 @@ export default function Terms() {
             <p>You may not: use bots or scripts to interact with the platform; create multiple accounts to abuse the Internship Package or referral bonuses; attempt to hack or manipulate platform features; use Zenti for money laundering or any illegal activity; or provide false information. Violations result in immediate account suspension, forfeiture of balances, and referral to Kenyan authorities.</p>
           </Section>
 
-          <Section title="10. Fraud Detection & Automatic Account Suspension">
+          <Section title="10. Appeal Approval & Account Reset Policy">
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 mb-3">
+              <p className="text-amber-900 font-bold mb-1">⚠️ Approved appeals result in a full account reset</p>
+              <p className="text-amber-800 text-sm">If your ban appeal is approved — whether by our automated system or a human reviewer — your account will be reinstated in a <strong>clean starting state</strong>. This is a mandatory, non-negotiable part of the reinstatement process.</p>
+            </div>
+            <p>The following will happen automatically when an appeal is approved:</p>
+            <ul className="list-disc pl-5 space-y-1 mt-2">
+              <li><strong>All active investment plans are cancelled</strong> — any plans running at the time of the ban will not be restored.</li>
+              <li><strong>Wallet balance is reset to KES 0</strong> — any remaining balance at the time of the ban is forfeited.</li>
+              <li><strong>Referral progress is reset</strong> — your referral tier, countdown, and program status return to the initial state. Your referral code remains usable.</li>
+              <li><strong>Internship Package eligibility is restored</strong> — you may use the free 2-day Internship Package once again as a fresh user.</li>
+              <li><strong>Unclaimed earnings are expired</strong> — any pending claimable earnings are cleared.</li>
+            </ul>
+            <p className="mt-3">This reset policy exists to ensure accountability and a fair starting point for reinstated accounts. <strong>No exceptions or partial resets are available.</strong> By submitting an appeal you acknowledge and accept these terms.</p>
+          </Section>
+
+          <Section title="11. Fraud Detection & Automatic Account Suspension">
             <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-3">
               <p className="text-red-800 font-bold mb-2">🚫 Our automated system detects and bans fraudulent accounts</p>
               <p className="text-red-700">Zenti operates a real-time fraud detection system that monitors all registrations and activities. Accounts may be <strong>automatically suspended without prior notice</strong> if the system detects any of the following:</p>

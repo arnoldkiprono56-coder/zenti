@@ -333,6 +333,145 @@ export async function processSundayBonuses() {
   }
 }
 
+/* ── POST /contact-request — email referrer their referrals' contact details ── */
+router.post("/contact-request", requireAuth, async (req: AuthRequest, res: Response) => {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  if (!user) { res.status(404).json({ error: "User not found" }); return; }
+  if (!user.referralCode) { res.status(400).json({ error: "You are not enrolled in the referral program" }); return; }
+
+  // Rate-limit: one request per 24 hours
+  const [lastRequest] = await db
+    .select({ createdAt: activityLogsTable.createdAt })
+    .from(activityLogsTable)
+    .where(and(
+      eq(activityLogsTable.userId, req.userId!),
+      eq(activityLogsTable.action, "referral_contact_request"),
+    ))
+    .orderBy(sql`${activityLogsTable.createdAt} desc`)
+    .limit(1);
+
+  if (lastRequest) {
+    const msAgo = Date.now() - new Date(lastRequest.createdAt).getTime();
+    const hoursAgo = msAgo / (1000 * 60 * 60);
+    if (hoursAgo < 24) {
+      const hoursLeft = Math.ceil(24 - hoursAgo);
+      res.status(429).json({ error: `You can request contact details once every 24 hours. Try again in ${hoursLeft} hour${hoursLeft !== 1 ? "s" : ""}.` });
+      return;
+    }
+  }
+
+  // Fetch all referrals with full details
+  const referrals = await db
+    .select({
+      id: referralsTable.id,
+      refereeId: referralsTable.refereeId,
+      isActive: referralsTable.isActive,
+      depositBonusPaid: referralsTable.depositBonusPaid,
+      createdAt: referralsTable.createdAt,
+      refereeName: usersTable.fullName,
+      refereeEmail: usersTable.email,
+      refereePhone: usersTable.phone,
+      refereeStatus: usersTable.status,
+    })
+    .from(referralsTable)
+    .innerJoin(usersTable, eq(referralsTable.refereeId, usersTable.id))
+    .where(eq(referralsTable.referrerId, req.userId!))
+    .orderBy(sql`${referralsTable.isActive} desc, ${referralsTable.createdAt} asc`);
+
+  if (referrals.length === 0) {
+    res.status(400).json({ error: "You have no referrals yet" }); return;
+  }
+
+  // Enrich with plan & investment info
+  const enriched = await Promise.all(referrals.map(async (r) => {
+    const [inv] = await db
+      .select({ amountInvested: investmentsTable.amountInvested, planName: plansTable.name })
+      .from(investmentsTable)
+      .innerJoin(plansTable, eq(investmentsTable.planId, plansTable.id))
+      .where(and(eq(investmentsTable.userId, r.refereeId), eq(investmentsTable.status, "active")))
+      .limit(1);
+
+    return { ...r, planName: inv?.planName ?? null, amountInvested: inv ? parseFloat(inv.amountInvested) : null };
+  }));
+
+  // Build email table rows
+  const rows = enriched.map((r, i) => `
+    <tr style="background:${i % 2 === 0 ? "#f9fafb" : "#fff"}">
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;">${r.refereeName}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${r.refereeEmail}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${r.refereePhone}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;">
+        <span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;background:${r.isActive ? "#dcfce7" : "#f3f4f6"};color:${r.isActive ? "#166534" : "#6b7280"};">
+          ${r.isActive ? "✅ Active Investor" : "⏳ Not Yet Invested"}
+        </span>
+      </td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${r.planName ?? "—"}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">${r.amountInvested != null ? `KES ${r.amountInvested.toLocaleString()}` : "—"}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280;">${new Date(r.createdAt).toLocaleDateString("en-KE")}</td>
+    </tr>`).join("");
+
+  const activeCount = enriched.filter(r => r.isActive).length;
+  const emailBody = `
+<p>Hi <strong>${user.fullName}</strong>,</p>
+<p>Here is a full summary of your <strong>${enriched.length} referral${enriched.length !== 1 ? "s" : ""}</strong> as of ${new Date().toLocaleDateString("en-KE", { dateStyle: "long" })}.</p>
+<p><strong>${activeCount}</strong> of them are active investors. This information is provided to you privately via email to protect the privacy of your referrals.</p>
+
+<div style="overflow-x:auto;margin:20px 0;">
+  <table style="width:100%;border-collapse:collapse;font-size:14px;min-width:600px;">
+    <thead>
+      <tr style="background:#f3f4f6;">
+        <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:12px;color:#374151;">NAME</th>
+        <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:12px;color:#374151;">EMAIL</th>
+        <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:12px;color:#374151;">PHONE</th>
+        <th style="padding:10px 12px;text-align:center;border-bottom:2px solid #e5e7eb;font-size:12px;color:#374151;">STATUS</th>
+        <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:12px;color:#374151;">PLAN</th>
+        <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:12px;color:#374151;">INVESTED</th>
+        <th style="padding:10px 12px;text-align:left;border-bottom:2px solid #e5e7eb;font-size:12px;color:#374151;">JOINED</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+</div>
+
+<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:14px;margin-top:20px;">
+  <p style="margin:0;font-size:13px;color:#92400e;"><strong>⚠️ Privacy Notice:</strong> This information is shared exclusively with you as the referrer and must not be redistributed, sold, or shared with any third party. Misuse of this data is a violation of Zenti's Terms of Service and may result in account termination.</p>
+</div>
+<p style="margin-top:16px;font-size:13px;color:#6b7280;">This data is accurate as of the time this email was sent. You can request an updated copy once every 24 hours.</p>`;
+
+  // Log before firing email so rate-limit is enforced even on failure
+  await db.insert(activityLogsTable).values({
+    userId: req.userId!,
+    userEmail: user.email,
+    action: "referral_contact_request",
+    details: `User requested contact details for ${enriched.length} referral(s). Sent to ${user.email}.`,
+    ipAddress: req.ip || "unknown",
+  });
+
+  // Fire email
+  void (async () => {
+    try {
+      const { sendEmailNotification, getDefaultSmtpConfig } = await import("../lib/email");
+      await sendEmailNotification({
+        email: user.email,
+        name: user.fullName,
+        subject: `Your Referral Contact Details — ${enriched.length} Referral${enriched.length !== 1 ? "s" : ""}`,
+        heading: "Your Referral Contacts",
+        body: emailBody,
+        icon: "👥",
+      }, getDefaultSmtpConfig());
+      logger.info({ userId: req.userId!, referralCount: enriched.length }, "Referral contact details emailed");
+    } catch (err) {
+      logger.warn({ err }, "Referral contact email failed to send");
+    }
+  })();
+
+  res.json({
+    ok: true,
+    referralCount: enriched.length,
+    message: `We've emailed the full contact details for all ${enriched.length} referral${enriched.length !== 1 ? "s" : ""} to ${user.email}. Check your inbox (and spam folder).`,
+  });
+});
+
 /* ── POST /trigger-sunday-bonus (admin only) ────────────────────────────── */
 router.post("/trigger-sunday-bonus", requireAuth, async (req: AuthRequest, res: Response) => {
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
