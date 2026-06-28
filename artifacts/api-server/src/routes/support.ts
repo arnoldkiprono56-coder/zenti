@@ -1,9 +1,13 @@
 import { Router, Response, Request } from "express";
 import { db } from "@workspace/db";
-import { supportRequestsTable, supportMessagesTable, usersTable, activityLogsTable, transactionsTable, investmentsTable } from "@workspace/db";
-import { eq, desc, and, sql, count } from "drizzle-orm";
+import {
+  supportRequestsTable, supportMessagesTable, usersTable,
+  activityLogsTable, transactionsTable, investmentsTable,
+  plansTable, claimableEarningsTable, referralsTable,
+} from "@workspace/db";
+import { eq, desc, and, sql, count, inArray } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
-import { generateSupportReply } from "../lib/gemini-support";
+import { generateSupportReply, type UserContext } from "../lib/gemini-support";
 import { logger } from "../lib/logger";
 
 const router = Router();
@@ -22,10 +26,164 @@ const FRAUD_KEYWORDS = [
 function moderateMessage(text: string): { isFlagged: boolean; flagReason: string | null } {
   const lower = text.toLowerCase();
   const matched = FRAUD_KEYWORDS.find(kw => lower.includes(kw));
-  if (matched) {
-    return { isFlagged: true, flagReason: `Flagged keyword: "${matched}"` };
+  return matched
+    ? { isFlagged: true, flagReason: `Flagged keyword: "${matched}"` }
+    : { isFlagged: false, flagReason: null };
+}
+
+/* ── Fetch full real-time user context for AI ───────────────────────────── */
+async function fetchUserContext(userId: number): Promise<UserContext | undefined> {
+  try {
+    // Current EAT date string (YYYY-MM-DD)
+    const eatDate = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" }); // gives YYYY-MM-DD
+
+    // Fire all DB queries in parallel
+    const [
+      userRows,
+      investmentRows,
+      depositRow,
+      withdrawalRow,
+      recentTxRows,
+      referralCountRow,
+      activeReferralCountRow,
+    ] = await Promise.all([
+      // User
+      db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1),
+
+      // Active investments joined with plans
+      db.select({
+        inv: investmentsTable,
+        plan: plansTable,
+      })
+        .from(investmentsTable)
+        .innerJoin(plansTable, eq(investmentsTable.planId, plansTable.id))
+        .where(and(eq(investmentsTable.userId, userId), eq(investmentsTable.status, "active"))),
+
+      // Total deposited
+      db.select({ total: sql<string>`coalesce(sum(amount::numeric), 0)` })
+        .from(transactionsTable)
+        .where(and(eq(transactionsTable.userId, userId), eq(transactionsTable.type, "deposit"), eq(transactionsTable.status, "completed"))),
+
+      // Total withdrawn
+      db.select({ total: sql<string>`coalesce(sum(amount::numeric), 0)` })
+        .from(transactionsTable)
+        .where(and(eq(transactionsTable.userId, userId), eq(transactionsTable.type, "withdrawal"), eq(transactionsTable.status, "completed"))),
+
+      // Recent 5 transactions
+      db.select()
+        .from(transactionsTable)
+        .where(eq(transactionsTable.userId, userId))
+        .orderBy(desc(transactionsTable.createdAt))
+        .limit(5),
+
+      // Total referrals count
+      db.select({ cnt: count() })
+        .from(referralsTable)
+        .where(eq(referralsTable.referrerId, userId)),
+
+      // Active referrals (referred user deposited & invested)
+      db.select({ cnt: count() })
+        .from(referralsTable)
+        .where(and(eq(referralsTable.referrerId, userId), eq(referralsTable.isActive, true))),
+    ]);
+
+    const user = userRows[0];
+    if (!user) return undefined;
+
+    // Investment IDs for claim lookup
+    const activeInvIds = investmentRows.map(r => r.inv.id);
+
+    // Today's claimable earnings (only if there are active investments)
+    const todayClaimRows = activeInvIds.length > 0
+      ? await db.select()
+          .from(claimableEarningsTable)
+          .where(and(
+            eq(claimableEarningsTable.userId, userId),
+            eq(claimableEarningsTable.earningDate, eatDate),
+            inArray(claimableEarningsTable.investmentId, activeInvIds),
+          ))
+      : [];
+
+    // Build active investments array with days left
+    const todayEAT = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" }));
+
+    const activeInvestments = investmentRows.map(({ inv, plan }) => {
+      let daysLeft: number | null = null;
+      if (inv.completesAt) {
+        const endDate = new Date(inv.completesAt);
+        const diffMs = endDate.getTime() - todayEAT.getTime();
+        daysLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+      }
+      return {
+        planName: plan.name,
+        isInternship: plan.isInternship,
+        amountInvested: parseFloat(String(inv.amountInvested)),
+        dailyEarning: parseFloat(String(inv.dailyEarning)),
+        totalEarned: parseFloat(String(inv.totalEarned)),
+        expectedTotal: parseFloat(String(inv.expectedTotal)),
+        startedAt: inv.startedAt.toISOString().slice(0, 10),
+        completesAt: inv.completesAt ? inv.completesAt.toISOString().slice(0, 10) : null,
+        daysLeft,
+        status: inv.status,
+      };
+    });
+
+    // Build today's claims with plan names
+    const planNameMap = new Map(investmentRows.map(r => [r.inv.id, r.plan.name]));
+    const todayClaims = todayClaimRows.map(c => ({
+      investmentId: c.investmentId,
+      planName: planNameMap.get(c.investmentId) ?? "Unknown Plan",
+      amount: parseFloat(String(c.amount)),
+      claimed: c.claimed,
+      expired: c.expired,
+    }));
+
+    const hasPendingClaimToday = todayClaims.some(c => !c.claimed && !c.expired);
+
+    // Build recent transactions
+    const recentTransactions = recentTxRows.map(tx => ({
+      type: tx.type as "deposit" | "withdrawal" | "earning",
+      amount: parseFloat(String(tx.amount)),
+      fee: parseFloat(String(tx.fee)),
+      status: tx.status,
+      method: tx.method ?? null,
+      reference: tx.reference ?? null,
+      createdAt: tx.createdAt.toISOString(),
+    }));
+
+    return {
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      accountStatus: user.status,
+      bannedReason: user.bannedReason ?? null,
+      joinedAt: user.createdAt.toISOString().slice(0, 10),
+      registrationCountry: user.registrationCountry ?? null,
+      lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+
+      balance: parseFloat(String(user.balance)),
+      lockedBalance: parseFloat(String(user.lockedBalance)),
+      totalEarned: parseFloat(String(user.totalEarned)),
+      totalDeposited: parseFloat(String(depositRow[0]?.total ?? "0")),
+      totalWithdrawn: parseFloat(String(withdrawalRow[0]?.total ?? "0")),
+
+      activeInvestments,
+      todayClaims,
+      hasPendingClaimToday,
+      recentTransactions,
+
+      referralCode: user.referralCode ?? null,
+      referralStatus: user.referralStatus,
+      totalReferrals: Number(referralCountRow[0]?.cnt ?? 0),
+      activeReferrals: Number(activeReferralCountRow[0]?.cnt ?? 0),
+
+      isInternshipEligible: user.isInternshipEligible,
+      internshipActivated: user.internshipActivated,
+    };
+  } catch (err) {
+    logger.warn({ err, userId }, "fetchUserContext failed — proceeding without user context");
+    return undefined;
   }
-  return { isFlagged: false, flagReason: null };
 }
 
 /* ── AI auto-reply helper ────────────────────────────────────────────────── */
@@ -37,28 +195,12 @@ async function triggerAiReply(ticketId: number, ticket: typeof supportRequestsTa
       .where(eq(supportMessagesTable.ticketId, ticketId))
       .orderBy(supportMessagesTable.createdAt);
 
-    // Only auto-reply if the last message is from the user (avoid double-replying)
+    // Only auto-reply when the last message is from the user
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.sender !== "user") return;
 
-    // Fetch user context if we have a userId
-    let userCtx = undefined;
-    if (ticket.userId) {
-      const [user] = await db.select().from(usersTable).where(eq(usersTable.id, ticket.userId)).limit(1);
-      const [depRow] = await db.select({ total: sql<number>`coalesce(sum(amount::numeric),0)` }).from(transactionsTable).where(and(eq(transactionsTable.userId, ticket.userId), eq(transactionsTable.type, "deposit"), eq(transactionsTable.status, "completed")));
-      const [wdRow] = await db.select({ total: sql<number>`coalesce(sum(amount::numeric),0)` }).from(transactionsTable).where(and(eq(transactionsTable.userId, ticket.userId), eq(transactionsTable.type, "withdrawal"), eq(transactionsTable.status, "completed")));
-      const [invRow] = await db.select({ cnt: count() }).from(investmentsTable).where(and(eq(investmentsTable.userId, ticket.userId), eq(investmentsTable.status, "active")));
-      if (user) {
-        userCtx = {
-          balance: parseFloat(String(user.balance ?? "0")),
-          activeInvestments: Number(invRow?.cnt ?? 0),
-          totalDeposited: Number(depRow?.total ?? 0),
-          totalWithdrawn: Number(wdRow?.total ?? 0),
-          status: user.status,
-          joinedAt: user.createdAt?.toISOString().slice(0, 10),
-        };
-      }
-    }
+    // Fetch full real-time user context
+    const userCtx = ticket.userId ? await fetchUserContext(ticket.userId) : undefined;
 
     const aiResult = await generateSupportReply(
       {
@@ -76,18 +218,17 @@ async function triggerAiReply(ticketId: number, ticket: typeof supportRequestsTa
     );
 
     if (!aiResult.reply || aiResult.confidence < 0.5) {
-      // Low confidence — log and leave for human review
-      logger.info({ ticketId, confidence: aiResult.confidence }, "AI support: low confidence, skipping auto-reply");
+      logger.info({ ticketId, confidence: aiResult.confidence }, "AI support: low confidence — skipping auto-reply");
       await db.insert(activityLogsTable).values({
         userId: ticket.userId ?? undefined,
         action: "ai_support_skipped",
-        details: `Ticket #${ticketId}: AI confidence too low (${(aiResult.confidence * 100).toFixed(0)}%) — needs human review. Category: ${aiResult.category}`,
+        details: `Ticket #${ticketId}: AI confidence too low (${(aiResult.confidence * 100).toFixed(0)}%) — needs human review`,
         ipAddress: "system-ai",
       });
       return;
     }
 
-    // Post the AI reply as admin sender
+    // Post AI reply
     const replyText = `🤖 *Zenti AI Assistant*\n\n${aiResult.reply}`;
     await db.insert(supportMessagesTable).values({
       ticketId,
@@ -110,7 +251,7 @@ async function triggerAiReply(ticketId: number, ticket: typeof supportRequestsTa
       ipAddress: "system-ai",
     });
 
-    // Email user the AI reply
+    // Email user
     if (ticket.userId) {
       void (async () => {
         try {
@@ -132,8 +273,8 @@ ${aiResult.shouldClose ? `<p>✅ This conversation has been marked as <strong>re
       })();
     }
 
-    logger.info({ ticketId, confidence: aiResult.confidence, shouldClose: aiResult.shouldClose, needsHuman: aiResult.needsHuman }, "AI support: auto-reply posted");
-  } catch (err: unknown) {
+    logger.info({ ticketId, confidence: aiResult.confidence, shouldClose: aiResult.shouldClose }, "AI support: auto-reply posted");
+  } catch (err) {
     logger.warn({ err, ticketId }, "AI auto-reply threw — skipping");
   }
 }
@@ -141,18 +282,14 @@ ${aiResult.shouldClose ? `<p>✅ This conversation has been marked as <strong>re
 /* ── Public: submit a support request (no auth) ──────────────────────────── */
 router.post("/request", async (req: Request, res: Response) => {
   const { name, email, phone, subject, message, category, priority } = req.body;
-
   if (!name || !email || !subject || !message) {
-    res.status(400).json({ error: "Name, email, subject and message are required" });
-    return;
+    res.status(400).json({ error: "Name, email, subject and message are required" }); return;
   }
   if (name.length > 100 || subject.length > 200 || message.length > 5000) {
-    res.status(400).json({ error: "Input exceeds maximum allowed length" });
-    return;
+    res.status(400).json({ error: "Input exceeds maximum allowed length" }); return;
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    res.status(400).json({ error: "Invalid email address" });
-    return;
+    res.status(400).json({ error: "Invalid email address" }); return;
   }
 
   const cat = VALID_CATEGORIES.includes(category) ? category : "general";
@@ -175,8 +312,7 @@ router.post("/request", async (req: Request, res: Response) => {
 router.post("/request/auth", requireAuth, async (req: AuthRequest, res: Response) => {
   const { subject, message, category, priority } = req.body;
   if (!subject || !message) {
-    res.status(400).json({ error: "Subject and message are required" });
-    return;
+    res.status(400).json({ error: "Subject and message are required" }); return;
   }
 
   const [user] = await db
@@ -218,19 +354,13 @@ router.get("/chat/my-tickets", requireAuth, async (req: AuthRequest, res: Respon
 router.post("/chat/new", requireAuth, async (req: AuthRequest, res: Response) => {
   const { subject, message, category } = req.body;
   if (!subject || !message) {
-    res.status(400).json({ error: "Subject and message are required" });
-    return;
+    res.status(400).json({ error: "Subject and message are required" }); return;
   }
   if (message.length > 2000) {
-    res.status(400).json({ error: "Message too long (max 2000 characters)" });
-    return;
+    res.status(400).json({ error: "Message too long (max 2000 characters)" }); return;
   }
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.id, req.userId!))
-    .limit(1);
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
   const moderation = moderateMessage(message);
@@ -266,7 +396,7 @@ router.post("/chat/new", requireAuth, async (req: AuthRequest, res: Response) =>
     });
   }
 
-  // Fire-and-forget: confirmation email + AI auto-reply
+  // Confirmation email (fire and forget)
   void (async () => {
     try {
       const { sendEmailNotification, getDefaultSmtpConfig } = await import("../lib/email");
@@ -284,7 +414,7 @@ router.post("/chat/new", requireAuth, async (req: AuthRequest, res: Response) =>
     } catch { /* silent */ }
   })();
 
-  // AI auto-reply (delayed slightly so the ticket is fully committed)
+  // AI auto-reply with full account context
   void triggerAiReply(ticket.id, ticket);
 
   res.status(201).json({ ticket, message: "Ticket opened successfully" });
@@ -297,12 +427,10 @@ router.post("/chat/:ticketId/message", requireAuth, async (req: AuthRequest, res
 
   const { message } = req.body;
   if (!message || String(message).trim().length === 0) {
-    res.status(400).json({ error: "Message is required" });
-    return;
+    res.status(400).json({ error: "Message is required" }); return;
   }
   if (message.length > 2000) {
-    res.status(400).json({ error: "Message too long (max 2000 characters)" });
-    return;
+    res.status(400).json({ error: "Message too long (max 2000 characters)" }); return;
   }
 
   const [ticket] = await db
@@ -312,8 +440,7 @@ router.post("/chat/:ticketId/message", requireAuth, async (req: AuthRequest, res
     .limit(1);
   if (!ticket) { res.status(404).json({ error: "Ticket not found" }); return; }
   if (ticket.status === "resolved") {
-    res.status(400).json({ error: "This conversation has been resolved. Please open a new ticket." });
-    return;
+    res.status(400).json({ error: "This conversation has been resolved. Please open a new ticket." }); return;
   }
 
   const moderation = moderateMessage(String(message));
@@ -342,7 +469,7 @@ router.post("/chat/:ticketId/message", requireAuth, async (req: AuthRequest, res
     });
   }
 
-  // AI auto-reply
+  // AI auto-reply with freshly fetched account context
   void triggerAiReply(ticketId, ticket);
 
   res.status(201).json(msg);
@@ -414,30 +541,25 @@ router.post("/admin/tickets/:ticketId/ai-suggest", requireAuth, async (req: Auth
   const [ticket] = await db.select().from(supportRequestsTable).where(eq(supportRequestsTable.id, ticketId)).limit(1);
   if (!ticket) { res.status(404).json({ error: "Ticket not found" }); return; }
 
-  const messages = await db
-    .select()
-    .from(supportMessagesTable)
-    .where(eq(supportMessagesTable.ticketId, ticketId))
-    .orderBy(supportMessagesTable.createdAt);
-
-  let userCtx = undefined;
-  if (ticket.userId) {
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, ticket.userId)).limit(1);
-    const [depRow] = await db.select({ total: sql<number>`coalesce(sum(amount::numeric),0)` }).from(transactionsTable).where(and(eq(transactionsTable.userId, ticket.userId), eq(transactionsTable.type, "deposit"), eq(transactionsTable.status, "completed")));
-    const [invRow] = await db.select({ cnt: count() }).from(investmentsTable).where(and(eq(investmentsTable.userId, ticket.userId), eq(investmentsTable.status, "active")));
-    if (user) {
-      userCtx = {
-        balance: parseFloat(String(user.balance ?? "0")),
-        activeInvestments: Number(invRow?.cnt ?? 0),
-        totalDeposited: Number(depRow?.total ?? 0),
-        status: user.status,
-        joinedAt: user.createdAt?.toISOString().slice(0, 10),
-      };
-    }
-  }
+  const [messages, userCtx] = await Promise.all([
+    db.select()
+      .from(supportMessagesTable)
+      .where(eq(supportMessagesTable.ticketId, ticketId))
+      .orderBy(supportMessagesTable.createdAt),
+    ticket.userId ? fetchUserContext(ticket.userId) : Promise.resolve(undefined),
+  ]);
 
   const aiResult = await generateSupportReply(
-    { id: ticket.id, subject: ticket.subject, category: ticket.category, priority: ticket.priority, message: ticket.message, userName: ticket.name, userEmail: ticket.email, userPhone: ticket.phone },
+    {
+      id: ticket.id,
+      subject: ticket.subject,
+      category: ticket.category,
+      priority: ticket.priority,
+      message: ticket.message,
+      userName: ticket.name,
+      userEmail: ticket.email,
+      userPhone: ticket.phone,
+    },
     messages.map(m => ({ sender: m.sender, message: m.message, createdAt: m.createdAt })),
     userCtx,
   );
@@ -475,7 +597,7 @@ router.post("/admin/tickets/:ticketId/reply", requireAuth, async (req: AuthReque
     .set({ status: newStatus, adminReply: String(message).slice(0, 2000), updatedAt: new Date() })
     .where(eq(supportRequestsTable.id, ticketId));
 
-  // Email the user the admin reply
+  // Email user the admin reply
   void (async () => {
     try {
       if (!ticket.userId) return;
