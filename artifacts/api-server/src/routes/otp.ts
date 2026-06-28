@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { db } from "@workspace/db";
 import { otpsTable, usersTable, platformSettingsTable } from "@workspace/db";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, sql } from "drizzle-orm";
 import { sendOtp, checkGatewayStatus } from "../lib/whatsapp";
 import { sendEmailOtp } from "../lib/email";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
