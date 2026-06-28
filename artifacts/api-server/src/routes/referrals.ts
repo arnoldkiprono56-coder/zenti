@@ -1,6 +1,6 @@
 import { Router, Response } from "express";
 import { db } from "@workspace/db";
-import { usersTable, referralsTable, referralPayoutsTable, transactionsTable, investmentsTable, activityLogsTable } from "@workspace/db";
+import { usersTable, referralsTable, referralPayoutsTable, transactionsTable, investmentsTable, activityLogsTable, plansTable } from "@workspace/db";
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middlewares/auth";
 import { logger } from "../lib/logger";
@@ -150,7 +150,41 @@ router.get("/my-referrals", requireAuth, async (req: AuthRequest, res: Response)
     .where(eq(referralsTable.referrerId, req.userId!))
     .orderBy(sql`${referralsTable.createdAt} desc`);
 
-  res.json(referrals);
+  // Enrich each referral with plan info and earnings
+  const enriched = await Promise.all(referrals.map(async (r) => {
+    const [inv] = await db
+      .select({ amountInvested: investmentsTable.amountInvested, planName: plansTable.name })
+      .from(investmentsTable)
+      .innerJoin(plansTable, eq(investmentsTable.planId, plansTable.id))
+      .where(and(eq(investmentsTable.userId, r.refereeId), eq(investmentsTable.status, "active")))
+      .orderBy(sql`${investmentsTable.createdAt} desc`)
+      .limit(1);
+
+    const [firstDeposit] = await db
+      .select({ amount: transactionsTable.amount })
+      .from(transactionsTable)
+      .where(and(
+        eq(transactionsTable.userId, r.refereeId),
+        eq(transactionsTable.type, "deposit"),
+        eq(transactionsTable.status, "completed"),
+      ))
+      .orderBy(sql`${transactionsTable.createdAt} asc`)
+      .limit(1);
+
+    const depositAmount = parseFloat(firstDeposit?.amount ?? "0");
+    const bonusEarned = r.depositBonusPaid && depositAmount > 0 ? depositAmount * 0.1 : 0;
+    const bonusExpected = !r.depositBonusPaid && r.isActive && depositAmount > 0 ? depositAmount * 0.1 : 0;
+
+    return {
+      ...r,
+      planName: inv?.planName ?? null,
+      amountInvested: inv ? parseFloat(inv.amountInvested) : null,
+      bonusEarned,
+      bonusExpected,
+    };
+  }));
+
+  res.json(enriched);
 });
 
 /* ── POST /apply — enroll and send confirmation email ────────────────────── */
