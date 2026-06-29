@@ -223,8 +223,10 @@ export default function Referrals() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (stats && (stats.tier !== "none" || stats.referralCode)) {
+    if (stats && stats.tier !== "none" && stats.referralCode) {
       setView("dashboard");
+    } else {
+      setView("benefits");
     }
   }, [stats]);
 
@@ -450,9 +452,13 @@ export default function Referrals() {
                             <p className="text-sm font-semibold truncate">{r.refereeName}</p>
                             <p className="text-xs text-muted-foreground">Joined {formatDate(r.createdAt)}</p>
                             <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                              {r.isActive ? (
+                              {(r as any).isInvesting ? (
                                 <Badge className="bg-green-100 text-green-800 border-green-200 text-xs gap-1 h-5">
-                                  <CheckCircle2 className="h-2.5 w-2.5" /> Invested ✅
+                                  <Zap className="h-2.5 w-2.5" /> Investing ✅
+                                </Badge>
+                              ) : r.isActive ? (
+                                <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs gap-1 h-5">
+                                  <CheckCircle2 className="h-2.5 w-2.5" /> Active
                                 </Badge>
                               ) : (
                                 <Badge variant="outline" className="text-xs text-muted-foreground gap-1 h-5">

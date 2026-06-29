@@ -450,7 +450,7 @@ router.post("/chat/new", requireAuth, async (req: AuthRequest, res: Response) =>
 
 /* ── Chat: send a follow-up message ─────────────────────────────────────── */
 router.post("/chat/:ticketId/message", requireAuth, async (req: AuthRequest, res: Response) => {
-  const ticketId = parseInt(req.params.ticketId, 10);
+  const ticketId = parseInt(req.params.ticketId as string, 10);
   if (isNaN(ticketId)) { res.status(400).json({ error: "Invalid ticket ID" }); return; }
 
   const { message } = req.body;
@@ -525,7 +525,7 @@ router.post("/chat/:ticketId/message", requireAuth, async (req: AuthRequest, res
 
 /* ── Chat: get messages for a ticket ────────────────────────────────────── */
 router.get("/chat/:ticketId/messages", requireAuth, async (req: AuthRequest, res: Response) => {
-  const ticketId = parseInt(req.params.ticketId, 10);
+  const ticketId = parseInt(req.params.ticketId as string, 10);
   if (isNaN(ticketId)) { res.status(400).json({ error: "Invalid ticket ID" }); return; }
 
   const [ticket] = await db
@@ -583,7 +583,7 @@ router.post("/admin/tickets/:ticketId/ai-suggest", requireAuth, async (req: Auth
     res.status(403).json({ error: "Forbidden" }); return;
   }
 
-  const ticketId = parseInt(req.params.ticketId, 10);
+  const ticketId = parseInt(req.params.ticketId as string, 10);
   if (isNaN(ticketId)) { res.status(400).json({ error: "Invalid ticket ID" }); return; }
 
   const [ticket] = await db.select().from(supportRequestsTable).where(eq(supportRequestsTable.id, ticketId)).limit(1);
@@ -622,7 +622,7 @@ router.post("/admin/tickets/:ticketId/reply", requireAuth, async (req: AuthReque
     res.status(403).json({ error: "Forbidden" }); return;
   }
 
-  const ticketId = parseInt(req.params.ticketId, 10);
+  const ticketId = parseInt(req.params.ticketId as string, 10);
   if (isNaN(ticketId)) { res.status(400).json({ error: "Invalid ticket ID" }); return; }
 
   const { message, resolve } = req.body;

@@ -26,7 +26,12 @@ export async function updateReferrerTier(referrerId: number) {
   const activeCount = activeReferrals.length;
   const now = new Date();
 
-  if (referrer.referralStatus === "none" && activeCount >= 1) {
+  if (referrer.referralStatus === "none") {
+    // No auto-enrollment. User must apply first.
+    return;
+  }
+  
+  if (referrer.referralStatus === "standard" && activeCount >= 1) {
     const deadline = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
     await db.update(usersTable).set({
       referralStatus: "countdown",
@@ -152,13 +157,20 @@ router.get("/my-referrals", requireAuth, async (req: AuthRequest, res: Response)
 
   // Enrich each referral with plan info and earnings
   const enriched = await Promise.all(referrals.map(async (r) => {
-    const [inv] = await db
-      .select({ amountInvested: investmentsTable.amountInvested, planName: plansTable.name })
+    const activeInvestments = await db
+      .select({ 
+        amountInvested: investmentsTable.amountInvested, 
+        planName: plansTable.name,
+        status: investmentsTable.status,
+        createdAt: investmentsTable.startedAt
+      })
       .from(investmentsTable)
       .innerJoin(plansTable, eq(investmentsTable.planId, plansTable.id))
-      .where(and(eq(investmentsTable.userId, r.refereeId), eq(investmentsTable.status, "active")))
-      .orderBy(sql`${investmentsTable.createdAt} desc`)
-      .limit(1);
+      .where(eq(investmentsTable.userId, r.refereeId))
+      .orderBy(sql`${investmentsTable.startedAt} desc`);
+
+    const currentInv = activeInvestments.find(i => i.status === "active");
+    const lastInv = activeInvestments[0];
 
     const [firstDeposit] = await db
       .select({ amount: transactionsTable.amount })
@@ -177,8 +189,9 @@ router.get("/my-referrals", requireAuth, async (req: AuthRequest, res: Response)
 
     return {
       ...r,
-      planName: inv?.planName ?? null,
-      amountInvested: inv ? parseFloat(inv.amountInvested) : null,
+      planName: currentInv?.planName ?? lastInv?.planName ?? null,
+      amountInvested: currentInv ? parseFloat(currentInv.amountInvested) : (lastInv ? parseFloat(lastInv.amountInvested) : null),
+      isInvesting: !!currentInv,
       bonusEarned,
       bonusExpected,
     };
@@ -195,8 +208,17 @@ router.post("/apply", requireAuth, async (req: AuthRequest, res: Response) => {
   // Ensure user has a referral code
   if (!user.referralCode) {
     const code = generateReferralCode();
-    await db.update(usersTable).set({ referralCode: code, updatedAt: new Date() }).where(eq(usersTable.id, req.userId!));
+    await db.update(usersTable).set({ 
+      referralCode: code, 
+      referralStatus: "standard", // Set status to standard upon application
+      updatedAt: new Date() 
+    }).where(eq(usersTable.id, req.userId!));
     user.referralCode = code;
+  } else if (user.referralStatus === "none") {
+    await db.update(usersTable).set({ 
+      referralStatus: "standard", 
+      updatedAt: new Date() 
+    }).where(eq(usersTable.id, req.userId!));
   }
 
   const referralLink = `${SITE_URL}/register?ref=${user.referralCode}`;
