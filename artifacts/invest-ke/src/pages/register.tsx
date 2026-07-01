@@ -53,11 +53,7 @@ export default function Register() {
   const refFromUrl = params.get("ref") || "";
   const { register, isRegistering } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  const [pendingValues, setPendingValues] = useState<RegisterValues | null>(null);
-  const [otpOpen, setOtpOpen] = useState(false);
   const [sendingOtp, setSendingOtp] = useState(false);
-  const [whatsappFailed, setWhatsappFailed] = useState(false);
-  const [otpChannel, setOtpChannel] = useState<"whatsapp" | "email">("whatsapp");
 
   const form = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
@@ -80,26 +76,6 @@ export default function Register() {
 
   const onSubmit = async (values: RegisterValues) => {
     setError(null);
-    setSendingOtp(true);
-    try {
-      await sendOtp(values.phone, values.email);
-      setPendingValues(values);
-      setOtpOpen(true);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to send OTP. Please try again.");
-    } finally {
-      setSendingOtp(false);
-    }
-  };
-
-  const handleVerify = async (code: string) => {
-    if (!pendingValues) return;
-    await callApi("/api/otp/verify", { phone: pendingValues.phone, code });
-  };
-
-  const handleVerified = () => {
-    if (!pendingValues) return;
-    setOtpOpen(false);
 
     // Collect enhanced fingerprint data
     const fingerprintData = {
@@ -134,7 +110,7 @@ export default function Register() {
 
     register({ 
       data: { 
-        ...pendingValues, 
+        ...values, 
         fingerprint: JSON.stringify(fingerprintData) 
       } as any 
     }, {
@@ -230,7 +206,7 @@ export default function Register() {
                         </div>
                       </FormControl>
                       <FormDescription>
-                        A verification code will be sent to confirm your number.
+                        Please enter your primary M-Pesa number.
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -280,20 +256,7 @@ export default function Register() {
         </Card>
       </motion.div>
 
-      {pendingValues && (
-        <OtpDialog
-          open={otpOpen}
-          phone={pendingValues.phone}
-          email={pendingValues.email}
-          reason="Registration"
-          channel={otpChannel}
-          whatsappFailed={whatsappFailed}
-          onVerified={handleVerified}
-          onClose={() => setOtpOpen(false)}
-          onResend={() => sendOtp(pendingValues.phone, pendingValues.email)}
-          onVerify={handleVerify}
-        />
-      )}
+
     </div>
   );
 }

@@ -117,31 +117,7 @@ router.post("/register", async (req: Request, res: Response) => {
     isInternshipEligible = year === 2026 && (month === 6 || month === 7);
   }
 
-  // Check if OTP was genuinely verified for BOTH phone and email in the last 10 minutes
-  const verificationWindow = new Date(Date.now() - 10 * 60 * 1000);
   const normalizedPhone = phone.replace(/\s/g, "");
-
-  const [phoneVerified, emailVerified] = await Promise.all([
-    db.select({ id: otpsTable.id }).from(otpsTable).where(and(
-      eq(otpsTable.phone, normalizedPhone),
-      eq(otpsTable.used, true),
-      gt(otpsTable.createdAt, verificationWindow)
-    )).limit(1),
-    db.select({ id: otpsTable.id }).from(otpsTable).where(and(
-      eq(otpsTable.email, normalizedEmail),
-      eq(otpsTable.used, true),
-      gt(otpsTable.createdAt, verificationWindow)
-    )).limit(1)
-  ]);
-
-  if (!phoneVerified.length) {
-    res.status(400).json({ error: "Phone number not verified. Please verify your phone via OTP first." });
-    return;
-  }
-  if (!emailVerified.length) {
-    res.status(400).json({ error: "Email not verified. Please verify your email ownership via the link/code sent to you." });
-    return;
-  }
 
   // Capture device fingerprint and registration IP
   const registrationIp = getClientIp(req);
